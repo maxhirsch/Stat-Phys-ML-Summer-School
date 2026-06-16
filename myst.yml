@@ -1,0 +1,33 @@
+# See docs at: https://mystmd.org/guide/frontmatter
+version: 1
+project:
+  id: 102701a7-a348-46bd-8cf7-acba642cf740
+  title: Statistical Physics and Mathematical Approaches to Machine Learning
+  description: Notes and lectures from the ICTP-INdAM-SLMath Summer Graduate School for Machine Learning (2026)
+  keywords:
+    - Machine learning
+    - Statistical physics
+  authors:
+    - Max Hirsch
+  bibliography:
+    - references.bib
+  github: maxhirsch/ML-Summer-School
+  # To autogenerate a Table of Contents, run "jupyter book init --write-toc"
+  toc:
+    - file: intro.md
+    - file: prereqs.md
+    - file: FM-Lect1-expanded.md
+    - file: FM-Lect2.md
+    - file: FM-Lect3.md
+    - file: AM-Lect1.md
+    - file: AM-Lect2.md
+    - file: AM-Lect3.md
+    - file: AM-Lect4.md
+site:
+  template: book-theme
+  # options:
+  #   favicon: favicon.ico
+  #   logo: site_logo.png
+  #sphinx:
+  #config:
+  # bibtex_bibfiles: "references.bib"
