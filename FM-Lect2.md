@@ -1,13 +1,13 @@
 ---
 title: Statistical Physics Approaches to High-Dimensional Learning
-subtitle: "ICTP Summer School on Machine Learning — Lecture 2"
+subtitle: "ICTP Summer School on Machine Learning — Lecture 2 (with Day 3 continuation)"
 short_title: Clustering via Approximate Message Passing
 authors:
   - name: Davide Ghio, transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
 ---
 
-These notes cover the second lecture, on studying clustering with approximate message passing (AMP). The running theme is that clustering a Gaussian mixture can be reframed as a *planted* spin-glass problem, and the cavity method — originally developed to solve the Sherrington–Kirkpatrick (SK) spin glass [@thouless1977solution] — gives both the optimal achievable accuracy and a practical algorithm (AMP) for achieving it. The Gaussian-mixture-clustering analysis follows @lesieur2016phase.
+These notes cover the second lecture, on studying clustering with approximate message passing (AMP), together with its continuation at the start of the third day. The running theme is that clustering a Gaussian mixture can be reframed as a *planted* spin-glass problem, and the cavity method — originally developed to solve the Sherrington–Kirkpatrick (SK) spin glass [@thouless1977solution] — gives both the optimal achievable accuracy and a practical algorithm (AMP) for achieving it. The Gaussian-mixture-clustering analysis follows @lesieur2016phase.
 
 # Unsupervised Learning
 
@@ -385,3 +385,101 @@ $$
 i.e. the empirical effect of the matrix-vector product on a true signal coordinate is, asymptotically, indistinguishable from a single scalar Gaussian channel with signal-to-noise set by $(m^t, q^t)$. This is the AMP/cavity-method version of the same phenomenon that drove the replica calculation in Lecture 1: a high-dimensional problem collapses onto a low-dimensional (here, scalar) effective description.
 
 This rank-one AMP recipe generalizes directly to the rank-$r$, asymmetric clustering problem with which we started — replacing scalars $(x_i, m, q)$ by length-$r$ vectors and matrices — giving the **low-rank AMP algorithm for clustering Gaussian mixtures** developed in @lesieur2016phase, which both achieves the Bayes-optimal MMSE (matching the information-theoretic threshold, when there is no statistical-to-computational gap) and runs in time linear in the size of the data per iteration.
+
+# The Bethe Free Energy
+
+*(Day 3, continuing directly from the cavity calculation above.)*
+
+The cavity method gives the state evolution equations governing $(m^t, q^t)$, but it is also useful to have a single scalar quantity — a **free energy** — whose extremization directly reproduces these equations, in the same spirit as the replica free energy of Lecture 1. This is the **Bethe free energy**, and deriving it gives an independent check on the cavity calculation as well as a variational characterization of the fixed point.
+
+## Setup
+
+Recall the recursion for the Hamiltonian when adding spin $x_0$ to a system of $n$ spins, written out to the order needed below:
+
+$$
+\mathcal{H}_{n+1} = \mathcal{H}_n(\lambda') + \sqrt{\frac{\lambda}{n}}\,x_0\sum_i \xi_{0i}\, x_i + \frac{\lambda}{n}\,x_0 x_0^*\sum_i x_i x_i^* - \frac{\lambda x_0^2}{2n}\sum_i x_i^2 + \mathcal{O}_n(1),
+$$
+
+where, as before, $\lambda' = \lambda n/(n+1)$ is the rescaled coupling for the $n$-spin sub-system. Define the **free energy density**
+
+$$
+\phi_B = \lim_{n\to\infty} \mathbb{E}\!\left[\frac{1}{n}\log Z_n\right], \qquad Z_n = \int d\underline{x}\; P_X(\underline{x})\, \exp\!\big(\mathcal{H}_n(\underline{x})\big).
+$$
+
+**Telescoping trick.** Rather than tackle $\log Z_n$ directly, write it as a telescoping (Cesàro) sum of single-spin increments:
+
+$$
+\frac{1}{n}\log Z_n = \frac{1}{n}\log\!\left(\frac{Z_n}{Z_{n-1}}\cdot\frac{Z_{n-1}}{Z_{n-2}}\cdots\frac{Z_1}{Z_0}\right) = \frac{1}{n}\sum_{i=1}^{n}\log\!\left(\frac{Z_i}{Z_{i-1}}\right).
+$$
+
+Since each individual ratio $Z_i/Z_{i-1}$ has (in expectation, by the self-averaging/concentration property used throughout the cavity method) the *same* limiting value as $n\to\infty$ — adding the $i$-th spin to an already-large system looks statistically the same regardless of $i$ — the Cesàro mean of these increments converges to that common limiting value:
+
+$$
+\phi_B = \lim_{n\to\infty}\mathbb{E}\!\left[\log\frac{Z_n}{Z_{n-1}}\right].
+$$
+
+This reduces the free energy density to the expected log of a *single* cavity step — exactly the ratio $Z_{n+1}/Z_n$ computed via the recursion above (with $n-1 \to n$ relabeled to match the "adding $x_0$" notation used earlier).
+
+## Evaluating the Cavity Ratio
+
+From the definition of $Z_n$ and the Hamiltonian recursion,
+
+$$
+\frac{Z_{n+1}}{Z_n} = \left\langle \exp\!\left(\big[\mathcal{H}_n(\lambda') - \mathcal{H}_n\big]\right) \int dx_0\, P_X(x_0)\, \exp\!\left(\sqrt{\frac{\lambda}{n}}\,x_0\sum_i \xi_{0i}x_i + \frac{\lambda}{n}x_0 x_0^*\sum_i x_i x_i^* - \frac{\lambda x_0^2}{2n}\sum_i x_i^2\right)\right\rangle_n.
+$$
+
+The bracketed rescaling factor $\mathcal{H}_n(\lambda') - \mathcal{H}_n$ contributes only at subleading order and can be dropped in the $n\to\infty$ limit (it is the same $\mathcal{O}(1/n)$ correction encountered when deriving the TAP equations). Using the concentration results from before — $\frac{1}{n}\sum_i x_i x_i^* \to m$, $\frac{1}{n}\sum_i x_i^2 \to \rho$ — and the Gaussian central-limit approximation $\sqrt{\lambda/n}\sum_i \xi_{0i}x_i \rightsquigarrow \sqrt{\lambda q}\,z$ derived earlier, the $x_0$-integral collapses to a single scalar object:
+
+$$
+\log\frac{Z_{n+1}}{Z_n} \;\longrightarrow\; \log\int dx_0\, P_X(x_0)\, \exp\!\left(\lambda m\, x_0 x_0^* - \frac{\lambda\rho}{2}x_0^2 + \sqrt{\lambda q}\, x_0\, z\right).
+$$
+
+This is exactly the same integral that appears inside the state-evolution update derived earlier — reassuringly, since the free energy and the cavity recursion describe the same underlying fixed point.
+
+## The Disorder-Average Correction via Stein's Lemma
+
+There is, however, one more piece: the average $\langle(\cdot)\rangle_n$ on the outside is itself still a thermal average over the $n$-spin system, and this average implicitly depends on the *same* disorder $\xi_{ij}$ that entered $\mathcal{H}_n$ in the first place. Separating out this residual dependence requires controlling a term of the form
+
+$$
+\prod_{i,j}\mathbb{E}_\xi\!\left[\exp\!\left(-\frac{\sqrt{\lambda}}{4n\sqrt{n}}\sum_{i,j}\xi_{ij}\,\langle x_i x_j\rangle_n\right)\right],
+$$
+
+i.e. the disorder average of an exponential whose exponent is *linear* in the Gaussian noise $\xi_{ij}$, but whose coefficient $\langle x_i x_j\rangle_n$ also depends on $\xi_{ij}$ through the Gibbs average. This self-referential dependence is handled using **Stein's lemma**, which states that for $z \sim \mathcal{N}(0,1)$ and any suitably smooth function $g$,
+
+$$
+\mathbb{E}_z\big[z\, g(z)\big] = \mathbb{E}_z\big[g'(z)\big].
+$$
+
+Applying this (in its multivariate form, coordinate-wise in each $\xi_{ij}$) to differentiate the Gibbs average with respect to its own disorder gives
+
+$$
+\mathbb{E}\big[\xi_{ij}\,\langle x_i x_j\rangle_n\big] = \mathbb{E}\!\left[\frac{\partial \langle x_i x_j\rangle_n}{\partial \xi_{ij}}\right] = \mathbb{E}\Big[\langle x_i^2 x_j^2\rangle_n - \langle x_i x_j\rangle_n^2\Big],
+$$
+
+where the right-hand side is a standard fluctuation–response identity: differentiating a Gibbs average with respect to a parameter coupled linearly to an observable produces a variance-like term (the connected correlation, here between $x_i x_j$ and itself). This is the same type of identity that produces susceptibilities and response functions throughout statistical mechanics — it is the discrete/disordered analogue of the fluctuation-dissipation theorem.
+
+Carrying this correction through the calculation and using concentration once more (so that $\langle x_i^2 x_j^2\rangle_n \to \rho^2$ and $\langle x_i x_j\rangle_n^2 \to q^2$), the disorder-average factor evaluates to
+
+$$
+\exp\!\left(-\frac{\lambda}{4}\rho^2 + \frac{\lambda}{4}q^2\right).
+$$
+
+## The Bethe Free Energy
+
+Collecting all the pieces — the scalar cavity integral and the disorder-average correction — gives the final closed-form expression for the **Bethe free energy**:
+
+$$
+\boxed{\phi_B = \frac{\lambda}{4}m^2 - \frac{\lambda}{4}q^2 - \mathbb{E}\!\left[\log\int dx_0\, P_X(x_0)\, \exp\!\left(\lambda m\, x_0 x_0^* - \frac{\lambda\rho}{2}x_0^2 + \sqrt{\lambda q}\, x_0\, z\right)\right].}
+$$
+
+*(Here $m$ and $q$ appear in the prefactor with opposite sign and a different combination, $\frac{\lambda}{4}m^2 - \frac{\lambda}{4}q^2$, than the bare disorder-correction term $-\frac{\lambda}{4}\rho^2+\frac{\lambda}{4}q^2$ derived above; the extra $m^2$ piece arises from the analogous Stein's-lemma treatment of the planted cross term $\frac{\lambda}{n}x_0x_0^*\sum_i x_ix_i^*$, which was abbreviated in the cavity recursion but follows the identical computation.)*
+
+This is a variational free energy in the same sense as the replica free energy of Lecture 1: extremizing over the order parameter $m$ reproduces the state-evolution fixed-point equation. Differentiating,
+
+$$
+\frac{\partial \phi_B}{\partial m} = 0 \;\;\Longrightarrow\;\; \lambda m - \lambda\,\mathbb{E}\!\left[\frac{\int dx_0\, P_X(x_0)\, x_0 x_0^*\, \exp\!\big(\lambda m\, x_0 x_0^* - \frac{\lambda\rho}{2}x_0^2 + \sqrt{\lambda q}\,x_0 z\big)}{\int dx_0\, P_X(x_0)\,\exp\!\big(\lambda m\, x_0 x_0^* - \frac{\lambda\rho}{2}x_0^2 + \sqrt{\lambda q}\,x_0 z\big)}\right] = 0,
+$$
+
+which, after canceling the overall factor of $\lambda$, is *exactly* the state-evolution fixed-point equation for $m$ derived via the cavity method earlier. This confirms that the cavity method's fixed point is a stationary point of $\phi_B$ — the Bethe free energy is the "potential" whose extremization the AMP iteration is implicitly performing, just as ordinary gradient descent extremizes a loss.
+
+**Connection to the Franz–Parisi potential.** The function $\phi_B(m,q)$, viewed as a function of the order parameters before extremization, is closely related to the **Franz–Parisi potential** from the spin-glass literature: a free energy computed with one order parameter (here, the overlap with a reference configuration) held fixed, used to probe the structure of the energy landscape around a typical configuration — for instance, to detect the existence of multiple distinct minima (a signature of replica-symmetry breaking) even when the replica-symmetric free energy alone would not reveal it. The phase diagrams resulting from this analysis (regions of $(\alpha, \rho)$-space where Bayes-optimal reconstruction is information-theoretically possible, algorithmically achievable by AMP, or impossible) are developed further in the accompanying slides.
