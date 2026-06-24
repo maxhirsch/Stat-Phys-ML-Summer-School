@@ -3,216 +3,264 @@ title: Statistical Physics Approaches to High-Dimensional Learning
 subtitle: "ICTP Summer School on Machine Learning — Lecture 3"
 short_title: Dynamics of Learning
 authors:
-  - name: Francesca Mignacco, transcribed by Max Hirsch with the Claude LLM
+  - name: Francesca Mignacco (Princeton University & CUNY Graduate Center), transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
+venue: ICTP-INdAM-SLMath Summer Graduate School for Machine Learning, Trieste, 15–19 June 2026
+bibliography: references.bib
 ---
 
-These notes cover the third lecture, returning to Francesca Mignacco, on the **dynamics of learning**. The objective is to derive effective, low-dimensional descriptions of training dynamics and apply them to commonly used algorithms such as stochastic gradient descent (SGD). Two complementary settings are covered: **online learning** in two-layer neural networks (where each data point is seen only once, so the dynamics reduce to a small, closed system of ordinary differential equations), and **batch learning**, which requires the heavier machinery of dynamical mean-field theory, the cavity method, and path-integral formulations (the subject of slides referenced throughout, not transcribed here). The online-learning analysis follows @goldt2019dynamics, with extensions discussed in @goldt2020hidden and @refinetti2021classifying.
+These notes cover the third lecture on the **dynamics of learning**, spanning Days 3 and 4 of the school. Two complementary settings are developed: **online learning** in two-layer narrow networks, where each data point is seen exactly once and the dynamics reduce to a closed deterministic ODE system; and **multi-pass SGD** via the dynamical cavity (mean-field) method, which handles temporal memory effects when data are reused. The online-learning framework follows {cite}`goldt2019dynamics; saad1995online`, with extensions in {cite}`goldt2020hidden; refinetti2021classifying`. The lecture opens with a tour of recent applications of the statics theory.
+
+**A note on perspective for PDE readers.** The central achievement of this lecture is a rigorous passage from an $N$-dimensional stochastic process (SGD on $\mathbf{w} \in \mathbb{R}^N$) to a low-dimensional deterministic ODE system. This is exactly analogous to deriving a homogenised or reduced-order model from a fine-scale PDE: the large-$N$ limit plays the role of the homogenisation limit, and the order parameters $(M, Q, v)$ are the effective macroscopic variables. The multi-pass DMFT section adds a further ingredient — temporal memory / retarded friction — which has no direct analogue in standard ODE theory but closely resembles the Volterra integro-differential equations that arise in viscoelastic or history-dependent PDE models.
+
+# Applications of the Statics Theory
+
+## Hidden Manifold Model
+
+Real data do not fill $\mathbb{R}^N$ uniformly; they live on or near a low-dimensional manifold. The **hidden manifold model** {cite}`goldt2020modeling; gerace2020generalisation` captures this: latent codes $c^\mu \in \mathbb{R}^L$ pass through a random feature map,
+
+$$x^\mu = \sigma(F^\top c^\mu)\in\mathbb{R}^N, \qquad y^\mu = f_*(c^\mu\cdot w_*),$$
+
+where $F \in \mathbb{R}^{N\times L}$ is a random matrix. A **Gaussian Equivalence Theorem** (GET) shows that the generalisation and training properties of $\{x^\mu, y^\mu\}$ are statistically equivalent to those of a simpler Gaussian surrogate
+
+$$\tilde{x}^\mu = \kappa_1 F^\top c^\mu + \kappa_* z^\mu, \quad z^\mu \sim \mathcal{N}(0,I_N),$$
+
+with coefficients $\kappa_1 = \mathbb{E}_\xi[\xi\,\sigma(\xi)]$ and $\kappa_*^2 = \mathbb{E}_\xi[\sigma(\xi)^2] - \kappa_1^2$, $\xi\sim\mathcal{N}(0,1)$. The GET is proved via Lindeberg-type interpolation arguments. It connects the replica/AMP analysis of Lectures 1–2 directly to structured-data regimes.
+
+## Neural Manifold Capacity
+
+In neuroscience and deep learning, object representations are smooth manifolds of neural population activity. The **manifold capacity** $\alpha^*(\kappa, R_M, D_M)$ — maximum number of linearly separable object manifolds per neuron — is computed exactly by the replica method {cite}`chung2018classification; mignacco2025neural`. It depends on the manifold's intrinsic dimension $D_M$ and radius $R_M$, and provides a rigorous link between geometric properties of representations and the number of dichotomies a linear readout can implement.
+
+## Bayesian Learning in Wide Networks
+
+For a two-layer network $y = a^\top\phi(W_1 x)$ in the **proportional width regime** $N_1/N_0 = \mathcal{O}(1)$, Bayesian inference can be analysed exactly in the proportional-sample limit {cite}`cui2023bayes; camilli2023fundamental` (linear scaling $P = \alpha N_0$) and in the quadratic-sample regime {cite}`maillard2024bayes; erba2024bayes; barbier2026bayes` ($P = \alpha N_0^2$). In both regimes the posterior collapses to a low-dimensional order-parameter description.
+
+## Statistical Mechanics of Transformers
+
+A full statistical-mechanics theory of deep multi-head self-attention is developed in {cite}`tiberi2024dissecting`. The main result: under Bayesian inference in the proportional limit, the network performs **kernel ridge regression** with an effective "renormalised" kernel
+
+$$\mathscr{K}(x^\mu, x^\nu) = \frac{1}{H^L}\sum_{\pi, \pi' \in \Pi} U^{\pi\pi'} C_{\pi\pi'}^{\mu\nu},$$
+
+where $\pi$ ranges over **attention paths** (sequences of head choices across $L$ layers), $C_{\pi\pi'}^{\mu\nu}$ couples inputs $\mu,\nu$ along paths $\pi,\pi'$, and the order-parameter matrix $U^{\pi\pi'}$ encodes inter-path correlations. Two mechanisms emerge: *attention path suppression* (down-weighting uninformative paths) and *attention path coupling* (exploiting correlations between paths). Counterintuitively, smaller pruned networks can outperform larger ones: for $N \lesssim 100$ the off-diagonal $U^{\pi\pi'}$ terms are active; for $N \gtrsim 1000$ path coupling vanishes ($U$ becomes diagonal) and the large network uses a less informative kernel.
 
 # Training Dynamics: Setting the Stage
 
-The basic training algorithm is **gradient descent**: at each step, update the weights using the gradient of the loss over the *entire* dataset. In practice, this full-batch gradient is expensive to compute at every step, motivating **stochastic gradient descent (SGD)**: at a given step, only update the weights based on the gradient computed on a small, randomly chosen subset of the data (a **minibatch**), rather than the whole training set.
+## From the Statics Picture to Dynamics
 
-## Modeling the Noise of SGD
+Lectures 1–2 characterised the *endpoint* of training — the fixed point $\hat{\mathbf{w}}$ reached by gradient descent and its generalisation error. This lecture asks: how does the trajectory $\mathbf{w}^t$ get there? Two complementary regimes:
 
-Writing $w_j$ for a generic weight, one full SGD step can be decomposed as
+- **Online learning** (each datum seen once): individual SGD steps are independent, enabling an exact derivation of deterministic ODEs for macroscopic order parameters.
+- **Multi-pass SGD** (data reused across epochs): past gradients create temporal correlations (memory), requiring a more elaborate dynamical mean-field theory.
 
-$$
-w_j(t + dt) = \underbrace{w_j(t) - dt\, \nabla\mathcal{L}(\underline{w})}_{\text{full-batch gradient step}} \;+\; \underbrace{dt\Big(\nabla\mathcal{L}(\underline{w}) - \widehat{\nabla}_B\mathcal{L}(\underline{w})\Big)}_{\text{SGD noise}},
-$$
+## Gradient Descent and SGD
 
-where $\nabla\mathcal{L}$ is the true (full-dataset) gradient and $\widehat{\nabla}_B\mathcal{L}$ is the gradient estimated from a minibatch of size $B$. The difference between the two is the **SGD noise** term: it vanishes in expectation (the minibatch gradient is an unbiased estimator of the full gradient) but has nonzero variance that depends on the batch size and the data distribution.
+**Full-batch gradient descent** uses the complete dataset at every step:
 
-**Physical picture.** This decomposition is structurally identical to a stochastic differential equation with a deterministic drift (the full-batch gradient) plus a noise term — exactly the setup of **Langevin dynamics** in statistical physics, where a particle moves down an energy landscape while being buffeted by thermal noise. Modeling the SGD noise as approximately Gaussian (a common and often justified approximation, since the minibatch gradient is itself an average over many data points and the central limit theorem applies) turns the discrete SGD update into a continuous-time Langevin equation, opening the door to the same tools used to study thermally-driven particles: drift-diffusion analysis, Fokker–Planck equations, and fluctuation-dissipation relations.
+$$w(t+dt) = w(t) - dt\,\nabla_w\mathcal{L}(w;\mathcal{D}).$$
 
-The remainder of the lecture focuses on **tracking the whole trajectory** of the dynamics, not just its fixed points — that is, understanding how quantities like the generalization error evolve as a function of training time, rather than only their asymptotic value once training has converged. This is a strictly harder and more informative question than the static analyses of Lectures 1 and 2.
+**Stochastic gradient descent (SGD)** uses a mini-batch $\mathcal{B}(t)$:
 
-# Online Learning in Two-Layer Narrow Networks
+$$w(t+dt) = w(t) - dt\,\hat\nabla_{\mathcal{B}}\mathcal{L}(w).$$
 
-The cleanest setting in which to study training dynamics in closed form is **online learning**: at every step the network sees a *fresh*, never-before-seen data point, so there is no question of overfitting or revisiting old data, and the dynamics can be tracked exactly via a small number of scalar order parameters. This setup, and the extensions discussed below, are due to @goldt2019dynamics, @goldt2020hidden, and @refinetti2021classifying.
+The difference $\nabla\mathcal{L} - \hat\nabla_{\mathcal{B}}\mathcal{L}$ is zero-mean noise; for large batches the CLT makes it approximately Gaussian, yielding a Langevin SDE. The key observation: as $N \to \infty$ an $N$-dimensional weight trajectory collapses onto a deterministic ODE for a handful of scalar order parameters — exactly as a fine-scale PDE system collapses to an effective macroscopic equation.
 
-## Setup: Teacher and Student Networks
+# Online Learning in Two-Layer Networks
 
-The input data are high-dimensional Gaussian vectors,
+## Setup: Teacher and Student
 
-$$
-x \in \mathbb{R}^N, \qquad x \sim \mathcal{N}(0, I_N).
-$$
+**Data:** $x^\mu \sim \mathcal{N}(0,I_N)$, i.i.d.
 
-**Teacher.** A fixed, "frozen" two-layer network generates the labels:
+**Teacher (frozen):** $y^\mu = \sum_{r=1}^{K^*}v_r^*\,\sigma^*(h_r^{*\mu})$, $h_r^{*\mu} = \frac{w_r^*\cdot x^\mu}{\sqrt{N}}$, $w_r^* \in \mathbb{R}^N$, $v_r^* \in \mathbb{R}$ fixed.
 
-$$
-y = \sum_{r=1}^{K^*} v_r^*\, \sigma^*(h_r^*), \qquad h_r^* = \frac{w_r^* \cdot x}{\sqrt{N}}, \qquad w_r^* \in \mathbb{R}^N,\; v_r^* \in \mathbb{R}.
-$$
+**Student (trained):** $\hat{y}^\mu = \sum_{k=1}^K v_k\,\sigma(h_k^\mu)$, $h_k^\mu = \frac{w_k\cdot x^\mu}{\sqrt{N}}$, $w_k \in \mathbb{R}^N$, $v_k \in \mathbb{R}$ learned. Typical activations: $\sigma(h) = \tanh(h)$, $\operatorname{erf}(h/\sqrt{2})$, or $\max\{0,h\}$.
 
-Here $K^*$ is the number of hidden units in the teacher, and the weights $\{w_r^*, v_r^*\}$ are drawn once at the start and never updated — they define the ground-truth function the student must learn.
+**Squared loss:** $\ell = \frac{1}{2}\Delta^2$, $\Delta = \hat{y} - y$.
 
-**Student.** A second two-layer network, with possibly different width $K$, is trained to approximate the teacher:
-
-$$
-\hat{y}(x) = \sum_{k=1}^{K} v_k\, \sigma(h_k), \qquad h_k = \frac{w_k \cdot x}{\sqrt{N}}, \qquad w_k \in \mathbb{R}^N,\; v_k \in \mathbb{R} \;\;(\text{learned}).
-$$
-
-Typical choices of activation function $\sigma$ include $\tanh(h)$ (smooth, bounded) and $\max\{0, h\}$ (ReLU, the standard choice in modern deep learning). The teacher and student may use the same or different activations $\sigma^*, \sigma$.
-
-**Loss.** The discrepancy between student and teacher on a single example is measured by the squared loss,
-
-$$
-\ell = \frac{1}{2}\Delta^2, \qquad \Delta = \hat{y}(x) - y.
-$$
+The normalisation $1/\sqrt{N}$ in $h_k^\mu = w_k \cdot x^\mu / \sqrt{N}$ ensures the pre-activations are $\mathcal{O}(1)$ regardless of $N$ — the same role as a mesh-width normalisation in finite-difference schemes.
 
 ## Online SGD Updates
 
-In the online setting, at each time step $\mu$ a fresh sample $x^\mu$ (with corresponding teacher label $y^\mu$) is drawn, and a single SGD step is taken using only this sample. For the first-layer weights,
+At step $\mu$ a fresh i.i.d.\ sample $x^\mu$ is drawn and the weights are updated:
 
-$$
-\delta w_k^\mu = w_k^{\mu+1} - w_k^\mu = -\eta\, \nabla_{w_k}\ell^\mu = -\eta\, \Delta^\mu\, v_k^\mu\, \sigma'(h_k^\mu)\, \frac{x^\mu}{\sqrt{N}},
-$$
+$$w_k^{\mu+1} - w_k^\mu = -\eta\,v_k^\mu\,\Delta^\mu\,\sigma'(h_k^\mu)\,\frac{x^\mu}{\sqrt{N}},$$
 
-where $\eta$ is the learning rate, and the chain rule produces the factor $\sigma'(h_k^\mu)$ (derivative of the activation) and $v_k^\mu$ (since $\hat{y}$ depends linearly on $v_k$, scaling the gradient with respect to $w_k$). Similarly, for the second-layer (readout) weights,
+$$v_k^{\mu+1} - v_k^\mu = -\frac{\eta}{N}\,\Delta^\mu\,\sigma(h_k^\mu).$$
 
-$$
-\delta v_k^\mu = v_k^{\mu+1} - v_k^\mu = -\frac{\eta}{N}\, \partial_{v_k}\ell^\mu = -\frac{\eta}{N}\, \Delta^\mu\, \sigma(h_k^\mu).
-$$
+The factor $1/N$ in the second update ensures that all order parameters evolve on the same timescale.
 
-*(Note: the readout-weight update carries a $1/N$ rescaling relative to the first-layer update, reflecting the fact that in this scaling convention the two layers are trained at different effective rates — a choice that ensures both layers contribute comparably to the dynamics as $N\to\infty$; this is sometimes called the "mean-field" or "Maclaurin" scaling for two-layer networks.)*
+## Order Parameters and Their Sufficiency
 
-## Order Parameters: Why the Pre-Activations Suffice
+Since $x^\mu \sim \mathcal{N}(0,I_N)$, the pre-activations $(h_k^\mu, h_r^{*\mu})$ are jointly Gaussian with zero mean and second moments:
 
-**Remark: the pre-activations are jointly Gaussian.** Since $x \sim \mathcal{N}(0, I_N)$ and each $h_k = w_k \cdot x/\sqrt{N}$, $h_r^* = w_r^*\cdot x/\sqrt{N}$ is a linear function of $x$, the entire collection $\{h_k\}_{k=1}^K \cup \{h_r^*\}_{r=1}^{K^*}$ is jointly Gaussian for any fixed set of weights. Each has mean zero,
+$$Q_{kk'} = \frac{w_k\cdot w_{k'}}{N} \quad \text{(student–student overlap)}, \qquad M_{kr} = \frac{w_k\cdot w_r^*}{N} \quad \text{(teacher–student alignment)},$$
 
-$$
-\mathbb{E}_{x^\mu}\big[h_k^\mu\big] = \mathbb{E}\big[h_k^{*\mu}\big] = 0,
-$$
+$$T_{rr'} = \frac{w_r^*\cdot w_{r'}^*}{N} \quad \text{(teacher self-overlap, fixed from the start)}.$$
 
-and their joint second moments are controlled entirely by four **order parameters**, all defined as $N$-dimensional inner products between weight vectors, rescaled by $N$:
+These $\mathcal{O}(K^2)$ scalar quantities are **sufficient statistics** for the generalisation error: since $(h, h^*)$ is jointly Gaussian with covariance determined entirely by $(Q, M, T)$,
 
-$$
-\mathbb{E}_{x^\mu}\big[h_k^\mu h_{k'}^\mu\big] = \frac{1}{N}w_k^\mu \cdot w_{k'}^\mu \equiv Q_{kk'}^\mu \quad \text{(student–student overlap)},
-$$
+$$\mathcal{E}_\text{gen} = \frac{1}{2}\mathbb{E}_{h,h^*}\!\left[\left(\textstyle\sum_k v_k\sigma(h_k) - \sum_r v_r^*\sigma^*(h_r^*)\right)^2\right],$$
 
-$$
-\mathbb{E}_{x^\mu}\big[h_k^\mu h_r^{*\mu}\big] = \frac{1}{N}w_k^\mu \cdot w_r^{*} \equiv M_{kr}^\mu \quad \text{(teacher–student alignment)},
-$$
+where $(h,h^*) \sim \mathcal{N}(0, \Sigma)$ with $\Sigma$ built from $(Q,M,T)$. The entire $N$-dimensional weight configuration is compressed into a matrix of size $\mathcal{O}(K \times K^*)$.
 
-$$
-\mathbb{E}_{x^\mu}\big[h_r^{*\mu} h_{r'}^{*\mu}\big] = \frac{1}{N}w_r^* \cdot w_{r'}^* \equiv T_{rr'} \quad \text{(teacher self-overlap, fixed since the teacher is frozen)}.
-$$
+## Closed ODE System for the Order Parameters
 
-*(The intermediate step uses $\mathbb{E}_{x^\mu}[x^\mu (x^\mu)^\top] = I_N$, so that $w_k^\top \mathbb{E}[xx^\top] w_{k'}/N = w_k\cdot w_{k'}/N$.)* The matrix $Q$ is the analogue of the self-overlap matrix from Lecture 1's replica calculation; $M$ plays the role of the magnetization (alignment with the teacher); $T$ is fixed data about the (frozen) teacher.
+In the joint limit $N, p \to \infty$ with $\alpha = p/N = \mathcal{O}(1)$, the stochastic increments of the order parameters split as
 
-**Remark: the order parameters are sufficient statistics for the generalization error.** This is the key structural fact that makes the whole approach work. The generalization error, averaged over a fresh test point $x$, is
+$$\delta M_{kr}^\mu = \underbrace{\mathbb{E}[\delta M_{kr}^\mu]}_{\text{drift, } \mathcal{O}(1/N)} + \underbrace{\text{zero-mean fluctuation}}_{\mathcal{O}(1/\sqrt{N})}.$$
 
-$$
-\mathcal{E}_\text{gen}(w, v; w^*, v^*) = \frac{1}{2}\mathbb{E}_x\big[\Delta^2\big] = \frac{1}{2}\,\mathbb{E}_{h, h^*}\!\left[\left(\sum_k v_k\,\sigma(h_k) - \sum_r v_r^*\,\sigma^*(h_r^*)\right)^2\right],
-$$
+Summing $\mathcal{O}(N)$ steps (one epoch, $\Delta\alpha = 1$), the fluctuation sum is $\mathcal{O}(1/\sqrt{N}) \to 0$. Setting $\tilde\alpha = \alpha\eta$ (rescaled time), the order parameters satisfy deterministic ODEs {cite}`goldt2019dynamics; saad1995online`:
 
-and crucially, because $(h, h^*)$ is jointly Gaussian and its covariance structure is entirely determined by $(Q, M, T)$, this expectation can be written as a function of the order parameters alone (together with the readout weights $v, v^*$):
+$$\frac{dM_{ir}}{d\alpha} = -\eta\,v_i\,\mathbb{E}_{h,h^*}\!\big[\Delta\,\sigma'(h_i)\,h_r^*\big],$$
 
-$$
-\mathcal{E}_\text{gen} = \mathcal{E}_g(Q, M, v; T, v^*).
-$$
+$$\frac{dQ_{ij}}{d\alpha} = -\eta\!\left(v_i\,\mathbb{E}[\Delta\,\sigma'(h_i)\,h_j] + v_j\,\mathbb{E}[\Delta\,\sigma'(h_j)\,h_i]\right) + \underbrace{\eta^2 v_i v_j\,\mathbb{E}[\Delta^2\,\sigma'(h_i)\,\sigma'(h_j)]}_{\text{Itô correction (from discrete steps)}},$$
 
-In other words, $\mathcal{E}_\text{gen}$ does not depend on the full $N$-dimensional weight vectors $w_k$ individually, only on their $\mathcal{O}(K^2)$ pairwise overlaps. This is the same dimensional reduction seen in the replica calculations of Lecture 1: a problem that started in $\mathbb{R}^N$ collapses onto a handful of macroscopic order parameters, but here the reduction applies to the entire *trajectory* of training, not just to the converged equilibrium state.
+$$\frac{dv_k}{d\alpha} = -\frac{\eta}{v}\,\mathbb{E}_{h,h^*}\!\big[\Delta\,\sigma(h_k)\big].$$
 
-# Dynamics of the Order Parameters
+All expectations are over $(h, h^*) \sim \mathcal{N}(0,\Sigma)$ with $\Sigma$ from the current $(Q,M,T)$; they can be computed numerically, or analytically when $\sigma = \operatorname{erf}$. The Itô correction in $dQ_{ij}/d\alpha$ arises from the discrete-to-continuous passage: $\|x^\mu\|_2^2/N \to 1$ by the law of large numbers for Gaussian vectors, giving an $\mathcal{O}(\eta^2)$ term with no analogue in continuous-time gradient flow. This is the stochastic analogue of the stability correction in an explicit time-stepping scheme.
 
-Take the joint limit $\rho, N \to \infty$ with $\alpha = \rho/N = \mathcal{O}(1)$ (sample complexity, exactly as in Lecture 1) while $\eta, K, K^*$ remain $\mathcal{O}_N(1)$ (fixed, not growing with $N$). The goal is to derive **closed, deterministic ODEs** for $(Q, M)$ as functions of training time, by taking the $N\to\infty$ limit of their discrete SGD updates.
+Rigorous proofs of convergence to this ODE system are in {cite}`goldt2019dynamics; veiga2022phase; benarous2021online; benarous2022online`.
 
-## Deriving the Update for $M$
+# Plateau Dynamics and the Specialisation Transition
 
-From the definition $M_{kr}^\mu = w_k^\mu \cdot w_r^* / N$ and the update rule for $w_k$,
+## The Soft Committee Machine
 
-$$
-\delta M_{kr}^\mu = M_{kr}^{\mu+1} - M_{kr}^\mu = \frac{w_r^* \cdot \delta w_k^\mu}{N} = -\frac{\eta}{N}\, v_k^\mu\, \Delta^\mu\, \sigma'(h_k^\mu)\, h_r^{*\mu},
-$$
+The ODEs become explicit for the **soft committee machine** {cite}`saad1995online`: fixed readout weights $v_k = 1/K$, equal-width teacher $K = K^*$, erf activation, and isotropic teacher $T = I$. Small initialisation $w_k^{(0)} \sim \mathcal{N}(0,\rho^2)$ with $\rho \ll 1$.
 
-where the last equality uses $w_r^* \cdot x^\mu/\sqrt{N} = h_r^{*\mu}$ directly, eliminating the explicit dependence on the high-dimensional vectors $w_r^*$ and $x^\mu$ in favor of the *scalar* pre-activation $h_r^{*\mu}$.
+**Goal:** each student unit should specialise to one teacher direction, $w_k \to w_r^*$ for some permutation.
 
-## Deriving the Update for $Q$
+By the permutation symmetry of the initialisation, the dynamics remain on an **invariant manifold** of the ODE:
 
-Similarly, from $Q_{kk'}^\mu = w_k^\mu \cdot w_{k'}^\mu/N$, using the product rule on $\delta(w_k\cdot w_{k'}) = \delta w_k \cdot w_{k'} + w_k\cdot \delta w_{k'} + \delta w_k \cdot \delta w_{k'}$:
+$$M_{kr} = R\,\delta_{kr} + S\,(1-\delta_{kr}), \qquad Q_{kk'} = Q\,\delta_{kk'} + C\,(1-\delta_{kk'}),$$
 
-$$
-\delta Q_{kk'}^\mu = \frac{\delta w_k^\mu \cdot w_{k'}^\mu}{N} + \frac{w_k^\mu \cdot \delta w_{k'}^\mu}{N} + \frac{\delta w_k^\mu \cdot \delta w_{k'}^\mu}{N}.
-$$
+with $Q = (MM^\top)_{kk}$. Only two scalar unknowns remain: $R$ (same-index student–teacher alignment) and $S$ (cross-index alignment).
 
-The first two (linear-in-$\delta w$) terms give
+**Symmetric fixed point.** The reduced ODE system has a fixed point at
 
-$$
--\frac{\eta}{N}\,\Delta^\mu\Big[v_k^\mu\,\sigma'(h_k^\mu)\,h_{k'}^\mu + v_{k'}^\mu\,\sigma'(h_{k'}^\mu)\,h_k^\mu\Big],
-$$
+$$R^* = S^* = \frac{1}{\sqrt{K(2K-1)}}, \qquad Q^* = C^* = \frac{1}{2K-1},$$
 
-while the quadratic (second-order in $\delta w$) term gives
+where all student units overlap equally with all teacher directions — no specialisation. The generalisation error at this *plateau* is
 
-$$
-\frac{\eta^2}{N}\,(\Delta^\mu)^2\, v_k^\mu v_{k'}^\mu\, \sigma'(h_k^\mu)\,\sigma'(h_{k'}^\mu)\,\frac{\|x^\mu\|_2^2}{N}.
-$$
+$$\mathcal{E}_g^\text{plateau} = \frac{K}{6} - \frac{K^2}{\pi}\arcsin\!\left(\frac{1}{2K}\right),$$
 
-*(Note: the quadratic term arises because $\delta w_k$ and $\delta w_{k'}$ are both proportional to $x^\mu$, so their inner product produces $\|x^\mu\|_2^2/N \to 1$ by the law of large numbers for a Gaussian vector in $\mathbb{R}^N$ — this $\mathcal{O}(\eta^2)$ correction is exactly analogous to the Itô correction term that appears when deriving a continuous-time SDE from a discrete-time random walk, and is essential to keep even though it is formally higher order in $\eta$, because it survives the same parameter-counting that makes the linear terms $\mathcal{O}(1/N)$ as well.)*
+which *increases* with $K$: wider networks have worse plateaus because they have more symmetry to break. The student is stuck in a saddle point of the loss landscape.
 
-## The Deterministic Limit
+## Escape from the Plateau: Linear Stability Analysis
 
-Each individual increment $\delta M_{kr}^\mu$ or $\delta Q_{kk'}^\mu$ is itself a random variable, since it depends on the random draw of $x^\mu$ at step $\mu$. The key step in passing to a deterministic description is to split each increment into its expectation (the **drift**, conditional on the current order parameters) plus a **zero-mean fluctuation**:
+Linearise the ODE around $(R^*, S^*)$:
 
-$$
-\delta M_{kr}^\mu = \underbrace{\mathbb{E}_{h^\mu, h^{*\mu}}\big[\delta M_{kr}^\mu\big]}_{\text{drift, } \mathcal{O}(1/N)} + \underbrace{\delta M_{kr}^\mu - \mathbb{E}\big[\delta M_{kr}^\mu\big]}_{\text{zero-mean fluctuation, } \mathcal{O}(1/N)}.
-$$
+$$\frac{d}{d\tilde\alpha}\begin{pmatrix}\delta R\\\delta S\end{pmatrix} = J\begin{pmatrix}\delta R\\\delta S\end{pmatrix},$$
 
-The drift term is $\mathcal{O}(1/N)$ per step (visible directly from the explicit $1/N$ or $1/\sqrt{N}$ prefactors derived above). The fluctuation term is *also* $\mathcal{O}(1/N)$ per step in magnitude, but — crucially — being a zero-mean, weakly-correlated random variable, its accumulated effect over many steps grows only like the square root of the number of steps (a random-walk scaling), rather than linearly.
+where $J$ is the Jacobian evaluated at the fixed point. The permutation symmetry of the problem block-diagonalises $J$ into two one-dimensional modes:
 
-This separation of scales is what allows a **law of large numbers** argument: summing the drift over $\mathcal{O}(N)$ steps (i.e., over one "epoch" in which every coordinate of $w$ has, on average, been updated $\mathcal{O}(1)$ times) gives an $\mathcal{O}(1)$ total drift, while the accumulated fluctuations over the same $\mathcal{O}(N)$ steps grow only as $\mathcal{O}(1/\sqrt{N})$ and vanish as $N\to\infty$. This is made precise via the rescaled, continuous training-time variable
+- **Symmetric mode** $(\delta R, \delta S) \propto (1,1)$: eigenvalue $\lambda_\text{sym} < 0$ — stable (perturbations along the manifold decay).
+- **Specialisation mode** $(\delta R, \delta S) \propto (K-1,-1)$: eigenvalue $\lambda_\text{spec} > 0$ — **unstable** (the plateau is a saddle point). For $K \gg 1$: $\lambda_\text{spec} \approx \frac{1}{2\pi K}$.
 
-$$
-\alpha = \frac{\mu}{N} \quad \text{(number of samples seen, per input dimension)},
-$$
+This is exactly a standard linear stability analysis for a fixed point of an ODE — familiar from bifurcation theory. The specialisation mode is the unstable manifold direction.
 
-so that summing $\mathcal{O}(N)$ discrete steps corresponds to advancing $\alpha$ by an $\mathcal{O}(1)$ amount:
+**Escape time.** Since $w_k^{(0)} \sim \mathcal{N}(0,\rho^2)$ with $\rho \ll 1$, the specialisation amplitude at initialisation is $a(0) \sim \rho/\sqrt{N} \sim 1/\sqrt{N}$. It grows as $a(\tilde\alpha) = a(0)\,e^{\lambda_\text{spec}\tilde\alpha}$. Escaping when $a \sim \mathcal{O}(1)$:
 
-$$
-M_{kr}^{\alpha N} - M_{kr}^{0} = \underbrace{\sum_{\mu=0}^{\alpha N - 1}\mathbb{E}\big[\delta M_{kr}^\mu\big]}_{\mathcal{O}(1)} + \underbrace{\sum_{\mu=0}^{\alpha N-1}\frac{1}{N}\delta_{kr}^\mu}_{\mathcal{O}(1/\sqrt{N})},
-$$
+$$\tilde\alpha_\text{esc} \approx \frac{\ln N}{2\lambda_\text{spec}} \underset{K\gg 1}{\approx} \pi K\ln N.$$
 
-where the fluctuation sum is written suggestively as $\frac{1}{N}\sum \delta_{kr}^\mu$ to emphasize that it is a sum of $\mathcal{O}(N)$ terms each of size $\mathcal{O}(1/N)$, which by a martingale central limit theorem concentrates with fluctuations of order $\sqrt{\mathcal{O}(N)}\times \mathcal{O}(1/N) = \mathcal{O}(1/\sqrt{N})$.
+The plateau duration is **logarithmic in $N$** (fine) and **linear in $K$** (a genuine bottleneck for wide networks). This gives a precise quantitative prediction for when training suddenly accelerates — the hallmark of the specialisation transition.
 
-As $N\to\infty$ with $\alpha$ held fixed, the fluctuation term vanishes and $M_{kr}^{\alpha N} \to M_{kr}(\alpha)$, a deterministic, continuous function of $\alpha$, satisfying the **ordinary differential equation**
+## Graded Teacher and Cascade of Specialisations
 
-$$
-\frac{dM_{kr}}{d\alpha} = \mathbb{E}_{h, h^*}\big[\delta M_{kr}\big]\cdot N \quad (\text{the drift, in continuum form}),
-$$
+For a teacher with non-isotropic self-overlap $T = \operatorname{diag}(t_1, \ldots, t_K)$, $t_1 > \cdots > t_K$, the specialisation modes become unstable at different rates. The result is a **cascade** of specialisations $\tilde\alpha_\text{esc}^{(1)} < \cdots < \tilde\alpha_\text{esc}^{(K)}$: the student learns teacher directions one at a time, strongest first, each appearing as a step-down in $\mathcal{E}_\text{gen}(\tilde\alpha)$. This is the ODE-level mechanism behind the empirical observation of "grokking" and staged learning in modern networks.
 
-and analogously for $Q_{kk'}(\alpha)$. This is the central result of the online-learning approach: an $N$-dimensional, stochastic, discrete-time learning process becomes, in the high-dimensional limit, a small ($\mathcal{O}(K^2)$-dimensional) deterministic system of ODEs in continuous "time" $\alpha$. Rigorous proofs of this concentration (i.e. that the fluctuation terms indeed vanish and the ODE limit is exact) are given by @goldt2019dynamics, and refined or extended in subsequent work, including @veiga2022phase and @benarous2021online (see slides for full statements and proof techniques).
+# Optimal Learning Rate Schedules
 
-## Small-Learning-Rate Expansion
+*(Reference: {cite}`saad1997online`)*
 
-**Remark.** Collect all the order parameters and readout weights into a single state vector,
+Since the ODE for $\Omega = (M, Q, v)$ is exact as $N \to \infty$, one can optimise the schedule $\eta(\alpha)$ to minimise $\mathcal{E}_g(\Omega(\alpha_F))$ at a final time $\alpha_F$. This is a standard **optimal control** problem — exactly as one minimises a cost functional in PDE-constrained optimisation.
 
-$$
-\Omega \equiv \big(\{M_{kr}\}, \{Q_{kk'}\}, \{v_k\}\big) \in \mathbb{R}^{KK^* + \frac{K}{2}(K+1) + K}.
-$$
+## Locally Optimal Rate
 
-*(The dimension count: $KK^*$ entries in $M$, $\binom{K+1}{2} = \frac{K(K+1)}{2}$ independent entries in the symmetric matrix $Q$, and $K$ entries in $v$.)* Expanding the drift in powers of the learning rate $\eta$ (since $\delta v_k^\mu = -\eta\,\partial_{v_k}\ell^\mu/N$ is already $\mathcal{O}(\eta)$, and the $Q$-update's quadratic term contributes at $\mathcal{O}(\eta^2)$), the full ODE for $\Omega$ takes the form
+At each time, choose $\eta$ to maximise the instantaneous rate of decrease of $\mathcal{E}_g$:
 
-$$
-\frac{d\Omega}{d\alpha} = \eta\, F_1(\Omega) + \eta^2\, F_2(\Omega) + \mathcal{O}(\eta^3),
-$$
+$$\frac{d\mathcal{E}_g}{d\alpha} = \eta\underbrace{(\nabla_\Omega\mathcal{E}_g\cdot F_1)}_{\leq 0\text{ (descent)}} + \eta^2\underbrace{(\nabla_\Omega\mathcal{E}_g\cdot F_2)}_{> 0\text{ (noise inflation)}},$$
 
-for some (model-dependent) functions $F_1, F_2$. Separately, note that the expected update for the first-layer weights is *exactly* a gradient-descent step on the generalization error itself:
+where $F_1$ is the drift and $F_2$ is the noise covariance contribution. Setting $d(d\mathcal{E}_g/d\alpha)/d\eta = 0$:
 
-$$
-\mathbb{E}_{x^\mu}\big[\delta w_k^\mu\big] = -\eta\,\mathbb{E}_{x^\mu}\big[\nabla_{w_k}\ell^\mu\big] = -\eta\,\nabla_{w_k}\mathcal{E}_\text{gen},
-$$
+$$\eta^*_\text{loc}(\alpha) = -\frac{\nabla_\Omega\mathcal{E}_g\cdot F_1}{2\,\nabla_\Omega\mathcal{E}_g\cdot F_2}.$$
 
-confirming that, in expectation, online SGD performs gradient flow on the population loss $\mathcal{E}_\text{gen}$ rather than the (noisier) per-sample loss $\ell^\mu$ — the fluctuations around this drift are exactly the $\mathcal{O}(1/\sqrt N)$ corrections analyzed above.
+This is the steepest instantaneous descent on a signal-to-noise ratio. However, it **stalls at the plateau**: the locally optimal $\eta$ cannot break the symmetry because $F_1 = 0$ there.
 
-In the regime of small learning rate, it is natural to rescale time by $\tilde\alpha = \alpha\eta$ (absorbing the leading factor of $\eta$ into the time variable, much as one rescales time when taking a continuum/diffusive limit of a random walk), so that to leading order in $\eta$,
+## Globally Optimal Rate via Pontryagin's Principle
 
-$$
-\frac{d\Omega}{d\tilde\alpha} = F_1(\Omega) + \mathcal{O}(\eta),
-$$
+Minimise $\mathcal{E}_g(\Omega(\alpha_F))$ subject to the ODE constraint $d\Omega/d\alpha = \eta F_1(\Omega) + \eta^2 F_2(\Omega)$. Introduce a costate (adjoint) variable $\Lambda(\alpha)$ and form the Hamiltonian:
 
-i.e. the leading-order dynamics become *independent of the learning rate* once time is measured in the rescaled units $\tilde\alpha$. This is the standard trick for relating the "many small steps" and "few large steps" regimes of SGD, and is used extensively in the slides to produce phase diagrams of the learning dynamics (e.g. plateaus, specialization transitions, and other qualitative phenomena in the trajectory of $\mathcal{E}_\text{gen}(\alpha)$) — see slides for the explicit forms of $F_1, F_2$ for specific teacher–student architectures.
+$$\mathcal{H}_\text{ctrl} = \Lambda \cdot \big(\eta F_1(\Omega) + \eta^2 F_2(\Omega)\big).$$
 
-# References
+**Pontryagin's Minimum Principle** gives:
+- **State ODE:** $d\Omega/d\alpha = \eta F_1 + \eta^2 F_2$ (forward in $\alpha$).
+- **Costate ODE:** $-d\Lambda/d\alpha = (\eta \nabla_\Omega F_1 + \eta^2 \nabla_\Omega F_2)^\top \Lambda$, with final condition $\Lambda(\alpha_F) = \nabla_\Omega\mathcal{E}_g(\Omega(\alpha_F))$ (backward in $\alpha$).
+- **Optimality condition:** minimise $\mathcal{H}_\text{ctrl}$ over $\eta$ at each $\alpha$:
 
-This lecture builds on @goldt2019dynamics for the core online-learning ODE framework, with the hidden manifold model extension of @goldt2020hidden and the Gaussian-mixture classification extension of @refinetti2021classifying mentioned as further reading. The batch-learning case (dynamical mean-field theory, cavity method, path-integral formulation) is deferred to the slides referenced at the start of the lecture.
+$$\eta^*_\text{glob}(\alpha) = -\frac{\Lambda(\alpha)\cdot F_1(\Omega)}{2\,\Lambda(\alpha)\cdot F_2(\Omega)}.$$
+
+The costate $\Lambda(\alpha)$ encodes the *sensitivity of the final error* to the current state, propagated backward in time. This is the adjoint equation familiar from PDE-constrained optimisation. At the plateau, $\Lambda$ can be nonzero even when $F_1 = 0$ (because the final error is sensitive to the current state even when the state is not moving), allowing $\eta^*_\text{glob}$ to push the learning rate high enough to escape the symmetric fixed point. The global rate can therefore outperform the local rate near the plateau — at the cost of temporarily increasing $\mathcal{E}_g$ to set up a faster descent later {cite}`saad1997online`.
+
+# Multi-Pass SGD via Dynamical Mean-Field Theory
+
+*(Day 4)*
+
+Online learning assumes each data point is seen exactly once. Multi-pass SGD reuses data across epochs, introducing **temporal memory**: the weight $w(t)$ depends on its own past through earlier gradients evaluated on the same data points.
+
+## The Model
+
+Consider a single-layer model with binary Gaussian mixture data:
+
+$$y^\mu = \pm1, \qquad x^\mu = \frac{y^\mu w^*}{\sqrt{N}} + z^\mu, \quad z^\mu \sim \mathcal{N}(0,I_N).$$
+
+Train with squared loss and $\ell_2$ regularisation. **Multi-pass SGD** with subsampling schedule $s_\mu(t) \in \{0,1\}$ (indicating whether sample $\mu$ is in the current mini-batch):
+
+$$\frac{dw}{dt} = -\frac{1}{b}\sum_{\mu=1}^p s_\mu(t)\,\ell'(y^\mu h^\mu(t))\,x^\mu - \lambda w(t),$$
+
+where $b = \mathbb{E}[s_\mu(t)]$ is the expected batch fraction and $\tau = dt/b$ is the persistence time. As $P, N \to \infty$ with $\alpha = P/N = \mathcal{O}(1)$, the temporal correlations between steps (absent in online learning) must be tracked explicitly.
+
+## The Dynamical Cavity Method: Three Contributions
+
+Decompose the weight vector along three directions:
+
+1. **Lab frame** $v_i$: a fixed unit direction uncorrelated with data and teacher, $w_i(t) = w(t) \cdot v_i$.
+2. **Data directions** $x^\mu / \sqrt{N}$: projections onto individual data points, $h^\mu(t) = x^\mu \cdot w(t)/\sqrt{N}$.
+3. **Teacher direction** $w^*/N$: $m(t) = w(t)\cdot w^*/N$.
+
+Adding the $v_i$ direction as a perturbation and expanding to first order in $1/\sqrt{N}$, one finds that the weight component $w_i(t)$ along $v_i$ satisfies an **effective stochastic process** with three terms {cite}`mignacco2020dynamical; bordelon2022self`:
+
+$$\frac{dw_i(t)}{dt} = \underbrace{F_i(t)}_{\text{① random force}} - \underbrace{\alpha\int_0^t M_R(t,t')\,w_i(t')\,dt'}_{\text{② retarded friction}} - \underbrace{\big(\lambda + \alpha\,\upsilon(t)\big)\,w_i(t)}_{\text{③ dynamic renorm.}}$$
+
+**① Random force** $F_i(t)$: the contribution of sample $\mu$'s input component along $v_i$, summed over all active samples. By the CLT, it is Gaussian with zero mean and two-time correlation
+
+$$\langle F_i(t)F_i(t')\rangle = \alpha\,M_C(t,t'),$$
+
+where $M_C(t,t') = \frac{1}{b}\langle s(t)s(t')\,\ell'(h(t))\,\ell'(h(t'))\rangle$ is the **correlation kernel**.
+
+**② Retarded friction**: the past trajectory $w_i(t')$ for $t' < t$ feeds back through a **memory kernel** $M_R(t,t')$,
+
+$$M_R(t,t') = \frac{1}{b}\left\langle s(t)\,\frac{\delta\ell'(h(t))}{\delta p(t')}\right\rangle,$$
+
+encoding how the gradient at time $t$ is influenced by the weight perturbation at the earlier time $t'$. This is the Onsager response function of the dynamics, and it is the key new ingredient absent from online learning. The convolution $\int_0^t M_R(t,t') w_i(t')\,dt'$ is a **Volterra integral** of the first kind — exactly the structure of memory-dependent (history-dependent) ODEs / viscoelastic constitutive laws. In online learning, $M_R \equiv 0$ because past gradients were computed on different (independent) data; in multi-pass SGD they were computed on the same data, creating a nontrivial $M_R$.
+
+**③ Dynamic renormalisation** of the regularisation: $\upsilon(t) = \frac{1}{b}\langle s(t)\,\ell''(h(t))\rangle$ accounts for the curvature of the loss.
+
+## DMFT Closure and Self-Consistency
+
+The effective process for $w_i(t)$ depends on $M_C$ and $M_R$, which in turn depend on the distribution of $h^\mu(t)$ — which depends on $w_i(t)$. Self-consistently closing this loop gives the **dynamical mean-field theory (DMFT)** equations: a closed system of integro-differential equations for the two-time correlation functions and response functions of the effective process. This is the dynamical analogue of the self-consistency equations for the replica order parameters in Lecture 1.
+
+The DMFT equations are exact as $N \to \infty$. They capture:
+- **Multi-pass memory**: the Volterra kernel $M_R(t,t')$ encodes how earlier training steps affect the current gradient.
+- **Batch-size effects**: the persistence time $\tau = dt/b$ interpolates between full-batch GD ($\tau \to \infty$, $M_R$ long-lived) and online SGD ($\tau \to 0$, $M_R \to 0$).
+- **Phase diagrams**: overfitting vs.\ underfitting as a function of $\alpha$, $\lambda$, $b$, and $\tau$ {cite}`mignacco2020dynamical; bordelon2022self`.
+
+## Scaling Limits
+
+The crossover between three qualitatively different regimes is controlled by $K \sim N^\kappa$ and $\eta \sim N^{-\delta}$ {cite}`veiga2022phase`:
+
+| Regime | Condition | Outcome |
+|--------|-----------|---------|
+| Perfect learning | $\kappa + \delta > 0$ | Population error $\to 0$ |
+| Bad learning | $-\tfrac{1}{2} < \kappa+\delta < 0$ | Noise dominates, nonzero error |
+| No convergence | $\kappa + \delta < -\tfrac{1}{2}$ | ODE description breaks down |
+
+The classical online-learning limit of these notes ($\eta = \mathcal{O}(1)$, $K = \mathcal{O}(1)$, $N\to\infty$) sits at $\kappa = \delta = 0$, on the boundary of the perfect-learning regime. The full phase diagram in the $(\kappa,\delta)$ plane is in {cite}`veiga2022phase`.

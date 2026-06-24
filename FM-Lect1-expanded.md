@@ -3,328 +3,194 @@ title: Statistical Physics Approaches to High-Dimensional Learning
 subtitle: "ICTP Summer School on Machine Learning — Lecture 1"
 short_title: Motivation and Background
 authors:
-  - name: Francesca Mignacco, transcribed by Max Hirsch with the Claude LLM
+  - name: Francesca Mignacco (Princeton University & CUNY Graduate Center), transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
+venue: ICTP-INdAM-SLMath Summer Graduate School for Machine Learning, Trieste, 15–19 June 2026
+bibliography: references.bib
 ---
 
-These notes cover the first lecture by Francesca Mignacco at the ICTP Summer School on Machine Learning. The central idea is that a trained neural network is a high-dimensional interacting system, and the tools statistical physicists developed to study such systems — disorder averaging, free energies, saddle-point methods, and the replica trick — give exact, quantitative predictions about learning and generalization. The analysis of the binary Gaussian mixture model follows @mignacco2020role.
+These notes cover the first lecture. The central idea is that a trained neural network is a high-dimensional interacting system and the tools statistical physicists developed — disorder averaging, free energies, saddle-point methods, and the replica trick — give exact, quantitative predictions about learning and generalization. The analysis of the binary Gaussian mixture classification model follows {cite}`mignacco2020role`.
+
+**A note on perspective.** Readers with a PDE background will find many familiar structures here, but with a probabilistic flavour. The "order parameters" that characterise the stationary states of the learning problem are analogous to macroscopic quantities (density, temperature) that collapse a high-dimensional PDE system to a low-dimensional description. The "thermodynamic limit" ($N \to \infty$) plays the role of a continuum limit. The replica method is a device for computing disorder-averaged logarithms, analogous in spirit to the method of characteristics but for a very different class of equations.
+
+# Motivation: Why Physics Methods for Machine Learning?
+
+Modern ML systems achieve striking results: large language models, protein structure prediction (AlphaFold, 2024 Nobel Prize in Chemistry), image generation, mathematical reasoning. Training-compute has grown exponentially, from ADALINE (1950s) to GPT-class models ($10^{25}$ FLOPs). Yet theoretical foundations remain poorly understood. Leo Breiman's 1995 essay "Reflections after refereeing papers for NIPS" listed open questions that remain largely unresolved:
+
+- Why don't heavily over-parameterised neural networks overfit?
+- What is the effective number of parameters?
+- Why doesn't gradient descent get stuck in poor local minima?
+- When should one stop training?
+
+The first two concern the **statics** of learning (what the trained model looks like); the last two concern the **dynamics** (how it gets there). These two goals organise the entire course.
+
+The **Hopfield model** {cite}`hopfield1982neural` is the founding example of the physics–ML connection. It is an associative memory: each stored pattern is an energy minimum of a disordered spin system, and retrieval is simply gradient descent relaxing into the nearest basin. Hopfield and Hinton shared the 2024 Nobel Prize in Physics; Parisi received the 2021 Nobel Prize for the replica theory that underpins it {cite}`mezard1987spin`. The capacity phase diagram — how many patterns can be stored before retrieval fails — was computed analytically by Amit, Gutfreund, and Sompolinsky {cite}`amit1985spin` using the replica method.
 
 # Three Ingredients of Machine Learning
 
-A supervised learning problem is defined by a dataset
+A supervised learning problem is defined by a dataset $\mathcal{D} = \{(x^\mu, y^\mu)\}_{\mu=1}^{p}$ with inputs $x^\mu \in \mathbb{R}^N$ and labels $y^\mu \in \mathbb{R}$. The goal is to learn a mapping $x \mapsto y$ that generalises to unseen data.
 
-$$
-\mathcal{D} = \{(x^\mu, y^\mu)\}_{\mu=1}^{p}, \qquad x^\mu \in \mathbb{R}^N,\; y^\mu \in \mathbb{R},
-$$
+**① Data.** The training set $\mathcal{D}$. In the statistical physics approach, data are random samples from some distribution $P_{XY}$, which enables disorder averaging (see below). Concrete benchmarks: MNIST ($28\times28$ greyscale images, 70 k examples), CIFAR-10 ($32\times32$ RGB, 60 k), ImageNet (14 M images, 20 k categories), LAION-5B (5.8 B image–text pairs).
 
-and the **goal** is to learn a mapping $x \mapsto y$ that generalizes to unseen data: given a new input $x_\text{new}$, predict
+**② Architecture.** The function class $f_\mathbf{w}$, mapping inputs $x$ to predictions $\hat{y} = f_\mathbf{w}(x)$.
 
-$$
-\hat{y}_\text{new} = f_{\mathbf{w}}(x_\text{new}).
-$$
+*The perceptron* (McCulloch–Pitts 1943; Rosenblatt 1958) is the simplest case: a single artificial neuron
 
-Three ingredients are needed:
+$$\hat{y} = \phi(\mathbf{w}^\top x + b),$$
 
-**① Data.** The training set $\mathcal{D}$. In the statistical physics approach, data points are treated as random samples from some distribution $P_{XY}$, enabling disorder averaging.
+where $\mathbf{w}\in\mathbb{R}^N$ is a weight vector, $b$ is a bias, and $\phi$ is a nonlinearity. With $\phi = \operatorname{sign}$ it defines a linear classifier: the decision boundary is the hyperplane $\{\mathbf{w}^\top x + b = 0\}$ in input space, partitioning $\mathbb{R}^N$ into two half-spaces. The perceptron can only solve **linearly separable** tasks; Minsky & Papert's 1969 book showed it cannot solve XOR, contributing to the first AI winter.
 
-**② Architecture.** The function class $f_{\mathbf{w}}$.
+*Deep neural networks* {cite}`lecun2015deep` compose many layers of such transforms:
 
-- *Perceptron:* $\hat{y} = \phi(\mathbf{w}^\top x)$, e.g. $\phi(\cdot) = \operatorname{sign}(\cdot + \kappa)$. Simple and exactly solvable, but limited to linearly separable tasks.
-- *Deep neural network (DNN):* $\phi^{(L)}\!\left(W_{(L)}\,\phi^{(L-1)}(\cdots)\right)$. Composing many layers allows the network to learn hierarchical, nonlinear features.
-- *Transformers.* Attention-based architectures suited to sequential data.
+$$\hat{y} = f_\mathbf{W}(x) = \phi^{(L)}\!\left(W_{(L)}\,\phi^{(L-1)}\!\left(\cdots\phi^{(1)}(W_{(1)} x)\cdots\right)\right).$$
 
-**③ Algorithm.** Gradient descent on a regularized empirical loss:
+Each layer applies an affine map followed by a pointwise nonlinearity $\phi$ (e.g.\ ReLU, $\tanh$, erf). The weight matrices $W_{(\ell)}$ are the parameters to be learned. This is a highly nonlinear composition: viewed as a discrete-time nonlinear map, each layer is one step of a flow.
 
-$$
-\mathcal{L}(\mathbf{w};\mathcal{D}) = \sum_{\mu=1}^{p} \ell(y^\mu;\mathbf{w}, x^\mu) + \frac{\lambda}{2}\|\mathbf{w}\|_2^2,
-$$
+*Transformers* {cite}`vaswani2017attention` process sequential data (language, code, proteins) via the **attention mechanism**:
 
-with update rule $\mathbf{w}^{t+1} = \mathbf{w}^{t} - \eta\,\nabla_{\mathbf{w}}\mathcal{L}(\mathbf{w}^{t})$, computed via backpropagation. The regularization term $\frac{\lambda}{2}\|\mathbf{w}\|^2$ penalizes large weights and corresponds to a Gaussian prior on $\mathbf{w}$.
+$$\operatorname{Attention}(Q,K,V) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V,$$
+
+where $Q$ (queries), $K$ (keys), $V$ (values) are learned linear projections of the input tokens, and the softmax makes the row sums equal 1. Intuitively, each token attends to all others with weights proportional to query–key similarity. The training objective is next-token prediction.
+
+**③ Algorithm.** Gradient descent on a regularised empirical loss:
+
+$$\mathcal{L}(\mathbf{w};\mathcal{D}) = \sum_{\mu=1}^{p} \ell(y^\mu;\mathbf{w}, x^\mu) + \frac{\lambda}{2}\|\mathbf{w}\|_2^2, \qquad \mathbf{w}^{t+1} = \mathbf{w}^{t} - \eta\,\nabla_{\mathbf{w}}\mathcal{L}(\mathbf{w}^{t}).$$
+
+For deep networks, $\nabla_\mathbf{w}\mathcal{L}$ requires **backpropagation** {cite}`rumelhart1986learning` — the chain rule applied layer-by-layer. With $a^{(0)} = x$, $z^{(\ell)} = W^{(\ell)}a^{(\ell-1)} + b^{(\ell)}$, $a^{(\ell)} = \phi(z^{(\ell)})$, $\hat{y} = a^{(L)}$, the backward pass computes error signals layer-by-layer:
+
+$$\delta^{(L)} = \nabla_{z^{(L)}}\ell(y, a^{(L)}), \qquad \delta^{(\ell)} = \left(W^{(\ell+1)}\right)^\top\!\delta^{(\ell+1)}\odot\phi'(z^{(\ell)}), \qquad \frac{\partial\mathcal{L}}{\partial W^{(\ell)}} = \delta^{(\ell)}\!\left(a^{(\ell-1)}\right)^\top.$$
+
+Zdeborová {cite}`zdeborova2020understanding` emphasises that building a theory of deep learning requires understanding the interplay of all three ingredients simultaneously.
 
 # The Generalization Problem
 
-The central challenge is that minimizing the **training error** $\mathcal{E}_\text{train}$ does not automatically minimize the **generalization error** $\mathcal{E}_\text{gen}$ on unseen data. Understanding this gap, and how it depends on the amount of data $p$, the dimension $N$, and the regularization $\lambda$, is the core problem these notes address.
+A predictor is useful only if it performs well on **new** data, not just on the training set. The two relevant error measures are:
 
-**Connection to physics.** This is directly analogous to a problem in statistical mechanics: a system trained on $\mathcal{D}$ has been tuned to a particular realization of disorder (the random data). Generalization asks whether the resulting state also describes unseen samples from the same distribution — i.e. whether the learned $\mathbf{w}$ captures the underlying signal rather than the noise.
+$$\varepsilon_\text{train}(\hat{\mathbf{w}}) = \frac{1}{p}\sum_{\mu=1}^{p}\ell\!\left(y_\mu, f_{\hat{\mathbf{w}}}(x_\mu)\right), \qquad \varepsilon_\text{gen}(\hat{\mathbf{w}}) = \mathbb{E}_{(x,y)\sim P_{XY}}\!\left[\ell\!\left(y, f_{\hat{\mathbf{w}}}(x)\right)\right].$$
 
-The *Hopfield model* [@hopfield1982neural] is an early and instructive example of the physics–ML connection: it models associative memory as energy minimization in a disordered system, where stored patterns are attractors of the dynamics. Retrieval of a memory corresponds to relaxation into the correct energy minimum — a direct physical picture of "inference."
+The generalisation error $\varepsilon_\text{gen}$ is **unknown in practice** (we do not have access to $P_{XY}$, only to a finite sample from it). The statistical physics approach circumvents this: by working with an explicit generative model, it allows $\varepsilon_\text{gen}$ to be computed *exactly* in the thermodynamic limit, giving sharp predictions that can be checked against simulations.
 
-# Exactly Solvable Models
+# Exactly Solvable Models: The Statistical Physics Programme
 
-To make analytical progress, one restricts to tractable settings via the **teacher–student** framework:
+The statistical physics approach rests on three pillars.
 
-- Input data are Gaussian: $x \sim \mathcal{N}(0, I_N)$.
-- A **teacher network** with fixed weights $\mathbf{w}^*$ generates the labels $y$ — it defines the ground truth.
-- A **student network** with learnable weights $\mathbf{w}$ tries to recover the teacher.
+## 1. The Teacher–Student Setup
 
-The ratio $\alpha = p/N$ (sample complexity) is the key control parameter: with too little data ($\alpha \ll 1$) many weight vectors fit the training set equally well, and generalization is poor; with enough data ($\alpha \gg 1$) the teacher is recoverable.
+Rather than working with a black-box dataset, assume that labels are generated by a known *teacher* network with fixed weights $\mathbf{w}^*$:
 
-The statistical physics approach rests on two ideas:
+$$y^\mu = f_{\mathbf{w}^*}(x^\mu) + \text{noise}, \qquad x^\mu \sim \mathcal{N}(0, I_N).$$
 
-1. **Average-case analysis.** Rather than asking about worst-case data (as in PAC learning), one averages over the random draw of $\mathcal{D}$. This is the same philosophy as averaging over disorder in spin glasses.
-2. **Thermodynamic limit.** Take $N, p \to \infty$ with $\alpha = p/N = \mathcal{O}(1)$ fixed. In this limit, fluctuations self-average and the problem becomes exactly solvable via a small number of macroscopic order parameters — much as thermodynamic quantities become sharp in the large-system limit of statistical mechanics.
+A *student* network with learnable $\mathbf{w}$ is trained to recover $\mathbf{w}^*$. This is analogous to solving an inverse problem when the forward operator is known. The teacher–student framework and its phase diagrams are described in {cite}`zdeborova2020understanding; engel2001statistical`.
 
-The two goals are then: (i) understand **statics** — which $\mathbf{w}$ does the algorithm converge to, and what is its generalization error? — and (ii) understand **dynamics** — how does $\mathbf{w}^t$ evolve during training?
+## 2. Average-Case Rather Than Worst-Case Analysis
+
+Classical learning theory (VC dimension, PAC learning, Rademacher complexity) provides **worst-case** bounds: guarantees that hold for every possible dataset. These bounds scale as $\mathcal{O}(\sqrt{N/p})$ and are often vacuous for modern large models.
+
+The statistical physics approach instead asks: what happens for a **typical** dataset drawn from $P_{XY}$? In the large-$N$ limit, the distribution of $\varepsilon_\text{gen}$ over datasets concentrates into a sharp spike (self-averaging; see below), so the typical and mean values coincide. This gives **exact** predictions rather than inequalities.
+
+## 3. The Thermodynamic Limit
+
+Take $N, p \to\infty$ with $\alpha = p/N = \mathcal{O}(1)$ fixed. This is the analogue of a continuum limit in PDE numerics: the discrete, high-dimensional problem converges to a continuous, low-dimensional description in terms of a handful of **order parameters** — scalar quantities that capture the macroscopic state of the system (analogous to, say, the Reynolds number in fluid mechanics). Gardner's 1987–88 papers {cite}`gardner1987maximum; gardner1988space` are the founding works of this approach to learning.
+
+The two goals of the course:
+① **Statics:** which $\mathbf{w}$ does gradient descent converge to, and what is its $\varepsilon_\text{gen}$?
+② **Dynamics:** how does the trajectory $\mathbf{w}^t$ evolve, and can we describe it with ODEs?
 
 # Supervised Learning: Bayesian Formulation
 
-Given $(x^\mu, y^\mu) \overset{\text{iid}}{\sim} P_{XY}(\cdot \mid \mathbf{w}^*)$ with $\mathbf{w}^* \sim P_{\mathbf{w}^*}$, Bayes' theorem gives the posterior over weights:
+Given $(x^\mu, y^\mu)\overset{\text{iid}}{\sim}P_{XY}(\cdot\mid\mathbf{w}^*)$, Bayes' theorem gives the **posterior distribution** over weights:
 
-$$
-P(\mathbf{w} \mid \mathcal{D}) = \frac{P_0(\mathbf{w})\prod_{\mu=1}^{p} P_y(y^\mu \mid \mathbf{w}, x^\mu)}{\mathcal{Z}(\mathcal{D})},
-$$
+$$P(\mathbf{w}\mid\mathcal{D}) = \frac{P_0(\mathbf{w})\prod_\mu P_y(y^\mu\mid\mathbf{w},x^\mu)}{\mathcal{Z}(\mathcal{D})}, \qquad \mathcal{Z}(\mathcal{D}) = \int d\mathbf{w}\;P_0(\mathbf{w})\prod_\mu P_y(y^\mu\mid\mathbf{w},x^\mu).$$
 
-where $P_0$ is the prior over weights, $P_y$ is the likelihood of an observed label, and
+Here $P_0(\mathbf{w})$ is the prior and $\mathcal{Z}(\mathcal{D})$ is the normalisation constant (partition function in physics language).
 
-$$
-\mathcal{Z}(\mathcal{D}) = \int d\mathbf{w}\; P_0(\mathbf{w})\prod_{\mu=1}^{p} P_y(y^\mu \mid \mathbf{w}, x^\mu)
-$$
+Identifying $-\log P_y \propto \ell$ and $-\log P_0 \propto \frac\lambda2\|\mathbf{w}\|^2$ gives a Gibbs distribution at inverse temperature $\beta$:
 
-is the **partition function** — the normalizing constant that also encodes all thermodynamic information about the learning problem.
+$$P(\mathbf{w}\mid\mathcal{D}) = \frac{e^{-\beta\,\mathcal{L}(\mathbf{w};\mathcal{D})}}{\mathcal{Z}(\mathcal{D})}.$$
 
-Identifying $-\log P_y(y^\mu \mid \mathbf{w}, x^\mu) \propto \ell(y^\mu; \mathbf{w}, x^\mu)$ and $-\log P_0(\mathbf{w}) \propto \frac{\lambda}{2}\|\mathbf{w}\|^2$, the posterior takes the form of a **Gibbs distribution**:
+**The fundamental analogy:** loss $\leftrightarrow$ energy, $\beta$ $\leftrightarrow$ inverse temperature, $\mathbf{w}$ $\leftrightarrow$ spin configuration, $\mathcal{D}$ $\leftrightarrow$ quenched disorder (frozen random couplings). The partition function $\mathcal{Z}(\mathcal{D})$ plays the role of the normalising constant for a Boltzmann distribution.
 
-$$
-P(\mathbf{w} \mid \mathcal{D}) = \frac{e^{-\beta\,\mathcal{L}(\mathbf{w};\mathcal{D})}}{\mathcal{Z}(\mathcal{D})}, \qquad \mathcal{Z}(\mathcal{D}) = \int d\mathbf{w}\;e^{-\beta\,\mathcal{L}(\mathbf{w};\mathcal{D})}.
-$$
+- **ERM limit ($\beta\to\infty$):** the Gibbs measure concentrates on the loss minimiser; this is what gradient descent implements.
+- **Bayes-optimal setting:** if $P_0 = P_{\mathbf{w}^*}$ and $P_y = P_{Y|X}$ exactly match the true generative process, the posterior mean achieves the minimum possible $\varepsilon_\text{gen}$ among all algorithms (the MMSE estimator).
 
-This is the fundamental bridge between machine learning and statistical physics: **the loss $\mathcal{L}$ plays the role of an energy, and $\beta$ is the inverse temperature.** The weights $\mathbf{w}$ are the microscopic degrees of freedom, and the dataset $\mathcal{D}$ is a realization of quenched disorder.
+## Free Energy Density and Self-Averaging
 
-## Special Cases
+The **free energy density** encodes all macroscopic information about the system:
 
-**(i) Empirical Risk Minimization (ERM).** In the zero-temperature limit $\beta \to \infty$, the Gibbs measure collapses onto the loss minimizer:
+$$f_N(\beta) = -\frac{1}{\beta N}\log\mathcal{Z}(\mathcal{D}).$$
 
-$$
--\frac{1}{\beta}\log\mathcal{Z}(\mathcal{D}) \xrightarrow{\beta\to\infty} \min_{\mathbf{w}}\mathcal{L}(\mathbf{w};\mathcal{D}).
-$$
+**Self-averaging** is the key property that makes this tractable: in the limit $N\to\infty$,
 
-Standard gradient descent, with a fixed learning rate run to convergence, implements ERM. A common loss for binary classification is logistic: $\ell(y;\mathbf{w},x) = \log(1 + e^{-y\,\mathbf{w}^\top x})$.
+$$f_N(\beta,\mathcal{D}) \xrightarrow{a.s.} f(\beta) = \lim_{N\to\infty}\mathbb{E}_\mathcal{D}[f_N(\beta)].$$
 
-**(ii) Bayes-Optimal (BO) Setting.** If one sets $P_0 = P_{\mathbf{w}^*}$ and $P_y = P_{Y|X}$ — i.e. the prior and likelihood exactly match the true generative process — then the Bayesian posterior is optimal, and
+This is analogous to the law of large numbers, but for a nonlinear functional of the data. Self-averaging allows us to replace the hard problem (compute $f_N$ for a specific, random $\mathcal{D}$) with the easier problem (compute $\mathbb{E}_\mathcal{D}[f_N]$). Once $f(\beta)$ is known, all macroscopic observables follow by differentiation — exactly as in thermodynamics.
 
-$$
-\mathcal{E}_\text{gen}(\mathrm{BO}) \leq \mathcal{E}_\text{gen}(\mathrm{ERM}),
-$$
-
-where $\mathcal{E}_\text{gen} = \mathbb{E}_{X,Y}\!\left[(\hat{y}_{\mathbf{w}}(x) - y)^2\right]$. The Bayes-optimal predictor is the best achievable by any algorithm; ERM with a misspecified prior or loss pays a price.
-
-## Free Energy Density
-
-The **free energy density** is the central quantity of interest:
-
-$$
-f_N(\beta) = -\frac{1}{\beta N}\log\mathcal{Z}(\mathcal{D}).
-$$
-
-Just as in thermodynamics, all macroscopic observables follow from derivatives of $f_N$. For instance, the mean loss under the posterior satisfies
-
-$$
-\frac{1}{N}\mathbb{E}_{\mathbf{w}|\mathcal{D}}[\mathcal{L}] = -\frac{\partial}{\partial\beta}\!\left(\beta f_N(\beta)\right),
-$$
-
-so $f_N$ is the cumulant generating function for the loss — knowledge of $f_N$ gives complete thermodynamic information.
-
-**Self-averaging.** In the thermodynamic limit $N, p \to \infty$ with $\alpha = p/N = \mathcal{O}(1)$, the free energy density is *self-averaging*: sample-to-sample fluctuations vanish, and
-
-$$
-f_N(\beta) \xrightarrow{N\to\infty} f(\beta) = \lim_{N\to\infty}\mathbb{E}_{\mathcal{D}}[f_N(\beta)] \quad \text{almost surely.}
-$$
-
-This is the learning-theory analogue of the thermodynamic limit in physics: just as the free energy per spin of a large magnet is a sharp number independent of the specific spin configuration, the free energy per weight of a large learning problem is a sharp number independent of the specific dataset. It allows us to replace the hard problem of computing $f_N$ for a given $\mathcal{D}$ with the easier problem of computing its expectation over $\mathcal{D}$.
-
-**Remark (quenched vs. annealed average).** The self-averaging property tells us we want $\mathbb{E}_{\mathcal{D}}[\log\mathcal{Z}]$. A naive approach would compute $\log \mathbb{E}_{\mathcal{D}}[\mathcal{Z}]$ instead — the *annealed* average, which is much easier since the log and expectation are exchanged. By Jensen's inequality this gives an upper bound:
-
-$$
-\mathbb{E}_{\mathcal{D}}[\log\mathcal{Z}] \leq \log\mathbb{E}_{\mathcal{D}}[\mathcal{Z}(\mathcal{D})].
-$$
-
-The left-hand side — the *quenched* average, where the disorder $\mathcal{D}$ is fixed before taking the log — is the physically correct one. The annealed average overcounts because it allows the partition function to be dominated by rare, atypically favorable datasets. Computing the quenched average is harder and requires the replica method.
+**Quenched vs annealed.** Self-averaging tells us we want $\mathbb{E}_\mathcal{D}[\log\mathcal{Z}]$ (the **quenched** average, where $\mathcal{D}$ is fixed before taking the log). The **annealed** average $\log\mathbb{E}_\mathcal{D}[\mathcal{Z}]$ is easier (Jensen: just exchange log and expectation) but is only an upper bound. Computing the quenched average exactly requires the replica method.
 
 # Binary Gaussian Mixture Classification
 
-We now study the simplest nontrivial exactly solvable model [@mignacco2020role]. The data are drawn from a **binary Gaussian mixture**:
+We study the simplest nontrivial exactly solvable model {cite}`mignacco2020role`. Data come from a **binary Gaussian mixture**:
 
-$$
-y^\mu = \pm 1 \text{ with equal probability}, \qquad x^\mu = \frac{y^\mu\,\mathbf{w}^*}{\sqrt{N}} + \sqrt{\Delta}\,z^\mu,
-$$
+$$y^\mu = \pm1 \text{ with equal probability}, \qquad x^\mu = \frac{y^\mu\,\mathbf{w}^*}{\sqrt{N}} + \sqrt{\Delta}\,z^\mu, \qquad z^\mu\sim\mathcal{N}(0,I_N).$$
 
-where $z^\mu \sim \mathcal{N}(0, I_N)$ is isotropic noise and $\Delta > 0$ controls the noise level. The teacher weights are normalized: $\mathbf{w}^* \sim S^{N-1}(\sqrt{N})$, so $\|\mathbf{w}^*\|^2 = N$.
+The two classes form isotropic Gaussian clouds of radius $\sqrt{\Delta}$ centred at $\pm\mathbf{w}^*/\sqrt{N}$; the signal-to-noise ratio is $\|\mathbf{w}^*\|^2/(\Delta N)$. The student uses a perceptron with threshold $\kappa$:
 
-**Physical picture.** The two classes form two isotropic Gaussian clouds in $\mathbb{R}^N$ centered at $\pm\mathbf{w}^*/\sqrt{N}$. The signal-to-noise ratio is set by $1/\Delta$: for small $\Delta$ the clouds are well separated and classification is easy; for large $\Delta$ the clouds heavily overlap and the problem becomes hard. The student must find a hyperplane that separates the two clouds, using only the $p$ labeled examples.
+$$\hat{y}_\mathbf{w}(x) = \operatorname{sign}(h+\kappa), \qquad h = \frac{\mathbf{w}\cdot x}{\sqrt{N}}.$$
 
-**Architecture.** A single-layer perceptron with bias/margin $\kappa$:
+The pre-activation $h$ is a scalar summary of the input: it is the projection of $x$ onto the weight vector, normalised to $\mathcal{O}(1)$.
 
-$$
-\hat{y}_{\mathbf{w}}(x) = \operatorname{sign}(h + \kappa), \qquad h = \frac{\mathbf{w}\cdot x}{\sqrt{N}} \in \mathbb{R}.
-$$
-
-The scalar pre-activation $h$ is a sufficient statistic: all the information the student uses about $x$ is compressed into this single number.
-
-The limiting case $\mathbf{w}^* = 0$ (no signal) is the **random labels** problem: can $p$ random $\pm 1$ labels be shattered by a linear classifier in $\mathbb{R}^N$? This is a **constraint satisfaction problem** — a central object in the statistical physics of disordered systems — and the answer is yes if and only if $\alpha = p/N < \alpha_c = 2$ (Gardner's capacity [@mezard1987spin]).
+The limiting case $\mathbf{w}^*=0$ (pure noise labels) is the **Gardner capacity** problem: $p$ random $\pm1$ labels can be shattered by a linear classifier in $\mathbb{R}^N$ if and only if $\alpha < \alpha_c = 2$ {cite}`gardner1988space`. This is a sharp phase transition — entirely analogous to a subcritical/supercritical bifurcation in PDEs.
 
 # The Replica Method
 
-We need to compute the quenched free energy $\mathbb{E}_{\mathcal{D}}[\log\mathcal{Z}(\mathcal{D})]$. The difficulty is that the log sits inside the expectation over the random data — a standard obstacle in disordered systems.
+We need $\mathbb{E}_\mathcal{D}[\log\mathcal{Z}(\mathcal{D})]$. The **replica trick** {cite}`mezard1987spin; nishimori2001statistical; engel2001statistical` is an elegant algebraic device:
 
-The **replica trick** [@mezard1987spin; @nishimori2001statistical; @engel2001statistical] sidesteps this using the identity
+$$\log Z = \lim_{n\to 0} \frac{Z^n - 1}{n} = \lim_{n\to 0}\frac{\partial}{\partial n}\log Z^n \qquad \Longrightarrow \qquad \mathbb{E}[\log\mathcal{Z}] = \lim_{n\to 0}\frac{\partial}{\partial n}\mathbb{E}[\mathcal{Z}^n].$$
 
-$$
-\log\mathcal{Z} = \lim_{n\to 0^+}\frac{\mathcal{Z}^n - 1}{n} = \lim_{n\to 0^+}\frac{\partial}{\partial n}\mathcal{Z}^n,
-$$
+For integer $n$, $\mathcal{Z}^n$ is the partition function of $n$ *independent copies* (replicas) $\{\mathbf{w}_a\}_{a=1}^n$ of the system, all coupled through the same quenched disorder $\mathcal{D}$. One averages over $\mathcal{D}$ first (this couples the replicas to each other), then analytically continues to $n\to 0$.
 
-so that
+**Step 1: Gaussian integration over data.** The local fields $h_a^\mu = \mathbf{w}_a\cdot x^\mu/\sqrt{N}$ are jointly Gaussian. Averaging the replicated partition function over the $p$ i.i.d. samples $\{x^\mu, y^\mu\}$ couples replicas through two macroscopic **order parameters**:
 
-$$
-\mathbb{E}_{\mathcal{D}}[\log\mathcal{Z}(\mathcal{D})] = \lim_{n\to 0^+}\frac{\partial}{\partial n}\mathbb{E}_{\mathcal{D}}\!\left[\mathcal{Z}(\mathcal{D})^n\right].
-$$
+$$m_a = \frac{\mathbf{w}_a\cdot\mathbf{w}^*}{N} \quad \text{(teacher–student alignment)}, \qquad Q_{ab} = \frac{\mathbf{w}_a\cdot\mathbf{w}_b}{N} \quad \text{(replica overlap matrix)}.$$
 
-The moment $\mathbb{E}[\mathcal{Z}^n]$ is far easier to compute than $\mathbb{E}[\log \mathcal{Z}]$: for integer $n$ one can write $\mathcal{Z}^n$ as a product of $n$ independent copies (replicas) of the system, average over $\mathcal{D}$, and then analytically continue to $n \to 0$. The procedure is non-rigorous but gives predictions confirmed by rigorous methods in many cases.
+These are scalar summaries: $m_a$ measures how well replica $a$ has recovered the teacher direction, and $Q_{ab}$ measures how similar two replica weight vectors are.
 
-The three main steps are:
+**Step 2: Saddle-point.** In large $N$ the integral over $(Q_{ab}, m_a)$ and conjugate variables is dominated by a saddle point, giving an effective free energy:
 
-1. **Treat $n$ as a positive integer.** Write $\mathcal{Z}^n = \prod_{a=1}^n \mathcal{Z}(\mathcal{D})$ using $n$ independent replicas $\{\mathbf{w}_a\}_{a=1}^n$, each with the same loss but independent weight vectors.
-2. **Average over the data $\mathcal{D}$.** The data enter only through the local fields $h_a^\mu = \mathbf{w}_a \cdot x^\mu/\sqrt{N}$, and since $x^\mu$ is Gaussian, this average can be done exactly. The replicas become coupled through a small number of macroscopic *order parameters*.
-3. **Analytically continue to real $n$ and take $n\to 0^+$.**
+$$S = \underbrace{\text{(weight geometry / prior)}}_{\text{entropy term}} - \underbrace{\alpha\log\mathcal{Z}_y(Q,\mathbf{m})}_{\text{data / energy term}}.$$
 
-## Step 1: Averaging Over Data
+The data term $\mathcal{Z}_y$ involves a one-dimensional Gaussian integral over a single effective field — all the $N$-dimensional complexity has been collapsed to a scalar problem.
 
-Set $\Delta = 1$. The local field for replica $a$ and sample $\mu$ is
+**Step 3: Analytic continuation.** Extremise $S$ over $(Q_{ab}, m_a)$ and continue to $n\to 0$.
 
-$$
-h_a^\mu = \frac{\mathbf{w}_a \cdot x^\mu}{\sqrt{N}} = y^\mu \frac{\mathbf{w}_a \cdot \mathbf{w}^*}{N} + \frac{\mathbf{w}_a \cdot z^\mu}{\sqrt{N}}.
-$$
+## Replica-Symmetric Ansatz
 
-Averaging over the Gaussian noise $z^\mu$ (i.i.d. across samples), the joint distribution of the fields across replicas for a given sample becomes
+The simplest consistent ansatz is **replica symmetry (RS)**: all replicas are equivalent, so $Q_{ab} = r\,\delta_{ab} + q\,(1-\delta_{ab})$ and $m_a = m$. This reduces to three scalar order parameters:
 
-$$
-\mathbf{h}^\mu \equiv (h_1^\mu, \ldots, h_n^\mu) \sim \mathcal{N}(y^\mu\,\mathbf{m},\, Q),
-$$
+| Symbol | Meaning |
+|--------|---------|
+| $r = \|\mathbf{w}_a\|^2/N$ | Mean squared norm of the weight vector |
+| $q = \mathbf{w}_a\cdot\mathbf{w}_b/N$, $a\neq b$ | Overlap between two independent posterior samples |
+| $m = \mathbf{w}_a\cdot\mathbf{w}^*/N$ | Teacher–student alignment (controls generalisation) |
 
-where the two key order parameters are:
+RS is **exact for convex losses** (ridge regression, logistic regression) because convex losses have a unique global minimum, so all replicas converge to the same point ($q=r$). For non-convex losses (deep networks), RS may break down — a sign of a more complex loss landscape with many local minima.
 
-$$
-m_a = \frac{\mathbf{w}_a \cdot \mathbf{w}^*}{N} \quad \text{(magnetization)}, \qquad Q_{ab} = \frac{\mathbf{w}_a \cdot \mathbf{w}_b}{N} \quad \text{(overlap matrix)}.
-$$
+Extremising the RS free energy gives three coupled algebraic self-consistency equations in $(r, q, m)$ — three equations in three unknowns.
 
-**Physical meaning.** The magnetization $m_a$ measures how well replica $a$ has aligned with the true teacher — it is the order parameter for learning. The off-diagonal overlap $Q_{ab}$ ($a \neq b$) measures how similar two independently trained replicas are to each other — it captures the geometry of the loss landscape. If the loss is convex, all replicas converge to the same minimum and $Q_{ab} \approx r$ (the self-overlap); in a rugged landscape, different replicas can get trapped in different minima and $Q_{ab} \ll r$.
+**ERM limit ($\beta\to\infty$).** The posterior concentrates on the minimiser; $r - q \to 0$ but the susceptibility $\chi = \beta(r-q) = \mathcal{O}(1)$ remains finite (it measures the linear response of the order parameters to perturbations).
 
-After averaging over the $p$ i.i.d. samples, the data dependence factorizes:
+# Generalisation Error
 
-$$
-\mathbb{E}_{\mathcal{D}}[\mathcal{Z}^n] = \int\!\left[\prod_a d\mathbf{w}_a\,P(\mathbf{w}_a)\right]\left[\mathcal{Z}_y(Q,\mathbf{m})\right]^p,
-$$
+Once $(r,q,m)$ are found from the saddle-point equations, the generalisation error follows in closed form. The pre-activation of the student on a test point is Gaussian with mean and variance set by the order parameters:
 
-where $\mathcal{Z}_y(Q,\mathbf{m}) = \mathbb{E}_{y,\mathbf{h}}\!\left[\prod_a P_y(y \mid h_a)\right]$ with $\mathbf{h} \sim \mathcal{N}(y\mathbf{m}, Q)$.
+$$\tilde{h}\,|\,\tilde{y} \sim \mathcal{N}\!\left(\tilde{y}\,m,\; \Delta r\right),$$
 
-## Step 2: Introducing the Order Parameters
+so the generalisation error (fraction of test points misclassified, with bias $\kappa$) is:
 
-The weight integral still runs over all of $\mathbb{R}^N$ for each replica. To reduce it to a finite-dimensional integral over $(Q, \mathbf{m})$, one inserts the identity
+$$\mathcal{E}_\text{gen} = \rho\,\Phi\!\left(\frac{-m-\kappa}{\sqrt{\Delta r}}\right) + (1-\rho)\,\Phi\!\left(\frac{m-\kappa}{\sqrt{\Delta r}}\right),$$
 
-$$
-1 = N\int dQ_{ab}\;\delta\!\left(NQ_{ab} - \mathbf{w}_a\cdot\mathbf{w}_b\right), \quad a \leq b,
-$$
+where $\Phi(t) = \frac{1}{\sqrt{2\pi}}\int_{-\infty}^t e^{-s^2/2}\,ds$ is the standard Gaussian CDF.
 
-and similarly for $m_a$. Representing each $\delta$ function by its Fourier transform introduces conjugate variables $\hat{Q}_{ab}$ and $\hat{m}_a$. In the large-$N$ limit the $\mathbf{w}$-integral becomes Gaussian and can be performed exactly, giving
+For the balanced ($\rho=\tfrac12$), unbiased ($\kappa=0$) case: $\mathcal{E}_\text{gen} = \Phi(-m/\sqrt{\Delta r})$, which depends only on the **signal-to-noise ratio** $m/\sqrt{\Delta r}$ of the student's pre-activation. As $\alpha\to\infty$ (more data), $m\to\sqrt{1/\Delta}$ and $\varepsilon_\text{gen}\to 0$. The full phase diagram as a function of $(\alpha,\Delta,\lambda)$ is in {cite}`mignacco2020role`.
 
-$$
-\mathbb{E}_{\mathcal{D}}[\mathcal{Z}^n] \propto \int\!\left[\prod_{a\leq b}dQ_{ab}\,d\hat{Q}_{ab}\right]\!\left[\prod_a dm_a\,d\hat{m}_a\right] e^{-N\,S(Q,\hat{Q},\mathbf{m},\hat{\mathbf{m}})}, \tag{*}
-$$
-
-where the effective action separates into a **prior term** (encoding the weight geometry) and a **data term** (encoding the likelihood):
-
-$$
-S = \underbrace{\sum_{a\leq b}\hat{Q}_{ab}Q_{ab} + \sum_a\hat{m}_a m_a - \log\mathcal{Z}_{\mathbf{w}}(\hat{Q},\hat{\mathbf{m}})}_{\text{prior / weight geometry}} \;-\; \underbrace{\alpha\log\mathcal{Z}_y(Q,\mathbf{m})}_{\text{data}}.
-$$
-
-The weight-space partition function is
-
-$$
-\log\mathcal{Z}_{\mathbf{w}}(\hat{Q},\hat{\mathbf{m}}) = \frac{1}{N}\log\int\prod_a d\mathbf{w}_a\,P_0(\mathbf{w}_a)\;\exp\!\left(\sum_{a\leq b}\hat{Q}_{ab}(\mathbf{w}_a\cdot\mathbf{w}_b) + \sum_a\hat{m}_a(\mathbf{w}_a\cdot\mathbf{w}^*)\right).
-$$
-
-For ridge regression, $P_0(\mathbf{w}) \propto e^{-\beta\lambda\|\mathbf{w}\|^2/2}$, the integral is Gaussian and gives
-
-$$
-\log\mathcal{Z}_{\mathbf{w}} = -\tfrac{1}{2}\log\det A + \tfrac{1}{2}\hat{\mathbf{m}}^\top A^{-1}\hat{\mathbf{m}} + \text{const},
-\qquad A_{ab} = \begin{cases}\beta\lambda - 2\hat{Q}_{aa} & a = b, \\ -2\hat{Q}_{ab} & a \neq b.\end{cases}
-$$
-
-## Step 3: Saddle-Point Equations
-
-The integral $(*)$ has a prefactor $e^{-N(\cdots)}$, so for $N \gg 1$ it is dominated by the saddle point of the action. Extremizing over the conjugate variables $\hat{Q}_{ab}$ and $\hat{m}_a$ gives
-
-$$
-\hat{\mathbf{m}} = A\mathbf{m}, \qquad A^{-1} = Q - \mathbf{m}\mathbf{m}^\top,
-$$
-
-and the action reduces to an effective free energy in terms of $(Q, \mathbf{m})$ alone:
-
-$$
-S_\text{eff}(Q,\mathbf{m}) = \frac{\beta\lambda}{2}\operatorname{tr}Q - \frac{1}{2}\log\det(Q - \mathbf{m}\mathbf{m}^\top) - \alpha\log\mathcal{Z}_y(Q,\mathbf{m}) + \text{const}.
-$$
-
-The self-consistency equations $\partial S_\text{eff}/\partial Q_{ab} = 0$ and $\partial S_\text{eff}/\partial m_a = 0$ then determine the order parameters. This is the same procedure as finding the equations of state in a mean-field theory: one looks for a consistent solution where the macroscopic observables satisfy self-referential equations.
-
-# Replica-Symmetric Ansatz
-
-The order parameter matrix $Q$ has $\mathcal{O}(n^2)$ entries — infinitely many as $n\to 0^+$ if treated naively. One needs an ansatz for its structure. The simplest and most physically motivated is the **replica-symmetric (RS) ansatz**: all replicas are statistically equivalent,
-
-$$
-Q_{ab} = r\,\delta_{ab} + q\,(1 - \delta_{ab}), \qquad m_a = m \quad \text{for all } a.
-$$
-
-Here $r = \|\mathbf{w}_a\|^2/N$ is the self-overlap (mean-square norm per dimension) and $q = \mathbf{w}_a\cdot\mathbf{w}_b/N$ for $a\neq b$ is the inter-replica overlap. The RS ansatz is **exact for convex problems** [@mezard1987spin] (e.g. ridge regression, logistic regression) because convex losses have a unique minimum, so all replicas must converge to the same point: $q = r$. For non-convex losses a more complex replica-symmetry-breaking (RSB) structure may be needed.
-
-## Simplification Under RS
-
-The trace and log-determinant reduce to scalar expressions. Using the matrix determinant lemma on $Q - m^2\mathbf{1}\mathbf{1}^\top = (r-q)I_n + (q-m^2)\mathbf{1}\mathbf{1}^\top$:
-
-$$
-\operatorname{tr}Q = nr, \qquad \log\det(Q - m^2\,\mathbf{1}\mathbf{1}^\top) \underset{n\to 0}{=} n\left[\log(r-q) + \frac{q - m^2}{r - q}\right] + \mathcal{O}(n^2).
-$$
-
-For $\mathcal{Z}_y$, the RS covariance $Q = (r-q)I_n + q\,\mathbf{1}\mathbf{1}^\top$ has a useful structure: it says all replicas share the same "common noise" $\xi_0$ and have independent "private noise" $\xi_a$. Concretely, one can write
-
-$$
-h_a = ym + \sqrt{r-q}\;\xi_a + \sqrt{q}\;\xi_0, \qquad \xi_a,\, \xi_0 \overset{\text{iid}}{\sim} \mathcal{N}(0,1).
-$$
-
-**Physical picture.** The variable $\xi_0$ represents disorder shared by all replicas — the part of the weight configuration that is pinned by the data. The variable $\xi_a$ represents fluctuations private to each replica around this common background. When $q \to r$ (ERM limit), the private fluctuations $\sqrt{r-q}\,\xi_a$ vanish, all replicas collapse to the same solution, and there is no variance across the posterior.
-
-Conditioned on $\xi_0$, the replicas are independent and $\mathcal{Z}_y$ factorizes over $a$. After taking $n\to 0^+$:
-
-$$
-\log\mathcal{Z}_y(Q,m) = n\,\mathbb{E}_{y,\xi_0}\!\left[\log\mathbb{E}_\xi\!\left[P_y\!\left(y \;\Big|\; ym + \sqrt{r-q}\;\xi + \sqrt{q}\;\xi_0\right)\right]\right] + \mathcal{O}(n^2).
-$$
-
-## RS Free Energy
-
-Substituting into $S_\text{eff}$, all $N$-dimensional integrals have been absorbed, and the problem reduces entirely to **three scalar order parameters** $(r, q, m)$:
-
-$$
-S_\text{eff}^{(\mathrm{RS})}(r,q,m) = \frac{\beta\lambda}{2}r - \frac{1}{2}\log(r-q) - \frac{q-m^2}{2(r-q)} - \alpha\,\mathbb{E}_{y,\xi_0}\!\left[\log\mathbb{E}_\xi\!\left[P_y(y\mid\cdots)\right]\right].
-$$
-
-The saddle-point equations $\partial S_\text{eff}^{(\mathrm{RS})}/\partial r = \partial S_\text{eff}^{(\mathrm{RS})}/\partial q = \partial S_\text{eff}^{(\mathrm{RS})}/\partial m = 0$ are three coupled self-consistency equations that can be solved numerically. This is the main result of the replica calculation: a problem that started in $\mathbb{R}^N$ has been reduced to three equations in three unknowns.
-
-**ERM limit ($\beta\to\infty$).** As $\beta\to\infty$ the Gibbs measure concentrates, the posterior variance $r - q \to 0$, but the product $\chi = \beta(r - q)$ remains $\mathcal{O}(1)$. The quantity $\chi$ is the **susceptibility** — it measures the linear response of the order parameters to a small perturbation of the effective field, and is a standard observable in spin glass theory. In ML terms, it is related to the sensitivity of the learned weights to small changes in the training data.
-
-# Generalization Error
-
-Once the order parameters $(r, q, m)$ are known from the saddle-point equations, the generalization error follows analytically. For a fresh test sample $(\tilde{x}, \tilde{y}) \sim P_{XY}$, the student's pre-activation is
-
-$$
-\tilde{h} = \frac{\mathbf{w}\cdot\tilde{x}}{\sqrt{N}} = \tilde{y}\,\frac{\mathbf{w}\cdot\mathbf{w}^*}{N} + \frac{\mathbf{w}\cdot \tilde{z}}{\sqrt{N}} \sim \mathcal{N}\!\left(\tilde{y}\,m,\; r\right),
-$$
-
-where the mean comes from the alignment with the teacher ($m$) and the variance from the residual weight norm ($r$). The generalization error is
-
-$$
-\mathcal{E}_\text{gen} = \mathbb{P}(\hat{y} \neq \tilde{y}) = \mathbb{P}\!\left(\tilde{y}\,(\tilde{h} + \kappa) < 0\right) = \mathbb{E}_{\tilde{y}}\!\left[\Phi\!\left(-\frac{\tilde{y}\,m + \kappa}{\sqrt{r}}\right)\right],
-$$
-
-where $\Phi$ is the standard Gaussian CDF. This is a closed-form expression: the generalization error is determined entirely by the ratio $m/\sqrt{r}$, the signal-to-noise ratio of the student's pre-activation on a test point.
-
-**Physical interpretation.** The ratio $m/\sqrt{r}$ has a clean meaning: $m = \mathbf{w}\cdot\mathbf{w}^*/N$ is the overlap with the teacher (signal), while $\sqrt{r} = \|\mathbf{w}\|/\sqrt{N}$ is the total weight scale (signal + noise). A perfect student would have $\mathbf{w} = \mathbf{w}^*$, giving $m = r = 1$ and error $\Phi(-\kappa/\sqrt{1}) = \Phi(-\kappa)$ — determined only by the margin. As $\alpha \to \infty$ (infinite data), $m/\sqrt{r} \to 1/\sqrt{\Delta}$, recovering the Bayes-optimal error set by the intrinsic noise $\Delta$.
-
-The full phase diagram of generalization error as a function of sample complexity $\alpha$, noise level $\Delta$, and regularization strength $\lambda$ is worked out in @mignacco2020role.
+**Key insight.** The entire $N$-dimensional learning problem has been reduced to a *three-parameter scalar system* whose solution gives exact predictions for $\varepsilon_\text{gen}$. This is the power of the thermodynamic limit combined with the RS ansatz.
