@@ -5,6 +5,7 @@ short_title: NTK, KRR, Benign Overfitting, Mean Field
 authors:
   - name: Andrea Montanari, transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
+bibliography: references.bib
 ---
 
 These notes cover the Day 8 lecture by Andrea Montanari. We begin by making the NTK theorem concrete: an explicit initialization scheme, the kernel trick giving a finite-width KRR predictor, and the Zhong 2023 theorem quantifying how large $m$ must be for the finite-width predictor to match the infinite-width one. We then state the GMMM theorem (Ghorbani–Mei–Misiakiewicz–Montanari 2021) characterizing the exact risk of the infinite-width KRR estimator — revealing a **staircase** structure — and explain the **benign overfitting** mechanism. The second half of the lecture introduces the **mean field limit** of two-layer networks as an alternative to lazy training that enables feature learning, described in three equivalent ways: McKean–Vlasov ODE, Fokker–Planck PDE, and JKO Wasserstein gradient flow.
@@ -67,7 +68,7 @@ $$
 
 ### Approximation Theorem: How Large Must $m$ Be?
 
-:::{prf:theorem} Finite-Width NTK Approximation (Oyamle–Soltanokotabi 2021; Zhong 2023)
+:::{prf:theorem} Finite-Width NTK Approximation [@oyamle2021soltanolkotabi; @zhong2023memory]
 :label: thm-finite-width
 
 Assume $n \geq d$, $md \geq C_n\log n$, $\alpha \geq C\sqrt{n^2/(md)}$. Then with high probability:
@@ -107,7 +108,7 @@ The $\hat Z_\ell$ are mean-zero with bounded operator norm. Apply the **matrix B
 
 Data $x_i = \sqrt{d}\,z_i$, $z_i \overset{\text{iid}}{\sim} \mathrm{Unif}(S^{d-1})$, labels $y_i = f_*(x_i)+\varepsilon_i$, $\mathrm{Var}(\varepsilon_i) = \sigma^2$. Kernel $K(x_1,x_2) = h(\langle x_1,x_2\rangle/d)$ with Gegenbauer expansion $h(u) = \sum_\ell b_\ell Q_\ell(u)$.
 
-:::{prf:theorem} Ghorbani–Mei–Misiakiewicz–Montanari (2021)
+:::{prf:theorem} Ghorbani–Mei–Misiakiewicz–Montanari [@ghorbani2021linearized]
 :label: thm-gmmm
 
 Assume $\sigma$ is $\sigma$-generic ($b_\ell > 0\;\forall\ell$) and $\mathbb{E}\sigma^2(G) < \infty$. For $d^\ell \ll n \ll d^{\ell+1}$ and $\lambda \in [0,\lambda_*]$:
@@ -271,3 +272,128 @@ In the **NTK/lazy training** limit, parameters move $O(1/\sqrt{m})$ from initial
 
 In the **mean field limit**, each $\theta_k$ evolves by the McKean–Vlasov ODE, moving a finite distance. The distribution $\rho_t$ can concentrate on a submanifold adapted to the data, enabling features to be **learned**. This is what achieves $R(\hat w) = R_\mathrm{Bayes} + O(d\log d/n)$ for the single-index model with only $n \gg d$ samples.
 :::
+
+---
+
+## Wasserstein Gradient Flow: Metric Space Foundations
+
+### Recap and the $W_2$ Distance
+
+We recap the three descriptions of the mean field limit, now fleshing out the Wasserstein gradient flow structure that underlies description (3). The Wasserstein-2 distance between $\rho_1, \rho_2 \in \mathcal{P}(\mathbb{R}^{d+1})$ is
+
+$$
+W_2(\rho_1,\rho_2) = \sqrt{\inf_{\gamma \in \mathcal{C}(\rho_1,\rho_2)} \int \|\theta_1 - \theta_2\|^2\,\gamma(d\theta_1,d\theta_2)},
+$$
+
+where $\mathcal{C}(\rho_1,\rho_2)$ is the set of couplings (joint distributions with marginals $\rho_1$ and $\rho_2$). The mean field dynamics are gradient flow of $R(\rho)$ in $(\mathcal{P}(\mathbb{R}^{d+1}), W_2)$.
+
+### Gradient Flow on a Metric Space: Metric Speed and Slope
+
+To define gradient flow on a metric space $(M, d)$ without a linear structure, one works with the **metric speed** and **metric slope** of $F : M \to \mathbb{R}$ [@ambrosio2005gradient]:
+
+$$
+|\dot x|(t) = \lim_{\varepsilon \to 0} \frac{d(x(t+\varepsilon), x(t))}{\varepsilon}, \qquad |\nabla F|(x) = \limsup_{d(z,x)\to 0} \frac{[F(z) - F(x)]^+}{d(z,x)}.
+$$
+
+A curve $t \mapsto x(t)$ is a **gradient flow** for $F$ on $(M,d)$ if
+
+$$
+-\frac{d}{dt}F(x(t)) \geq \frac{1}{2}\bigl\{|\dot x|(t)^2 + |\nabla F|^2(x(t))\bigr\},
+$$
+
+with equality if and only if $x$ is the gradient flow. The definition, due to Ambrosio, Gigli, and Savaré [@ambrosio2005gradient], generalizes the Euclidean identity $-\frac{d}{dt}F(x(t)) = \|\dot x(t)\|^2 = \|\nabla F(x(t))\|^2$ and makes sense in any metric space.
+
+### Applying to $(\mathcal{P}, W_2)$
+
+Setting $x = \rho$, $d = W_2$, $F = R$, the metric speed of the mean field trajectory satisfies
+
+$$
+|\dot\rho|^2(t) \leq \int \|\nabla\Psi(\theta;\rho_t)\|^2\,\rho_t(d\theta),
+$$
+
+since the upper bound on $W_2(\rho_{t+\varepsilon}, \rho_t)$ comes from pushing $\rho_t$ along the flow $\theta(t+\varepsilon) = \theta(t) - \varepsilon\nabla\Psi(\theta(t);\rho_t) + o(\varepsilon)$. The metric slope satisfies
+
+$$
+|\nabla R|(\rho_*) = \lim_{\substack{W_2(\rho,\rho_*)\to 0}} \frac{[R(\rho) - R(\rho_*)]^+}{W_2(\rho,\rho_*)} = \left(\int \|\nabla\Psi(\theta;\rho_*)\|^2\,\rho_*(d\theta)\right)^{1/2}.
+$$
+
+The verification uses the Taylor expansion of $R$: for $\rho = (I + \varepsilon \xi)_\#\rho_*$ with displacement field $\xi$,
+
+$$
+R(\rho) - R(\rho_*) = -\int\langle\nabla\Psi(\theta_0;\rho_*),\,\theta_1-\theta_0\rangle\,\gamma(d\theta_0,d\theta_1) + O(W_2^2) \leq \left(\int\|\nabla\Psi\|^2\rho_*\right)^{1/2} W_2(\rho,\rho_*) + O(W_2^2).
+$$
+
+Hence $-\frac{d}{dt}R(\rho_t) = \int\|\nabla\Psi(\theta;\rho_t)\|^2\,\rho_t(d\theta) = \frac{1}{2}(|\dot\rho|^2 + |\nabla R|^2)$, confirming the gradient flow identity.
+
+### Convergence Theorem for SGD to Mean Field
+
+:::{prf:theorem} Propagation of Chaos [@mei2018mean]
+:label: thm-poc
+
+Assume $\theta_i(0) \overset{\text{iid}}{\sim} \rho_0$ and online SGD with step size $\varepsilon$. Under:
+1. $|a|, |y| \leq C$, $\nabla_\theta\sigma(x,\theta)$ is $O(1)$-subgaussian,
+2. $\theta \mapsto V(\theta)$, $(\theta_1,\theta_2)\mapsto U(\theta_1,\theta_2)$ differentiable with Lipschitz gradient,
+
+for all $T \geq 1$, with probability $\geq 1 - 2e^{-z/2}$:
+
+$$
+\sup_{t \in [0,T]} |R^{(m)}(\theta(\lfloor t/\varepsilon \rfloor)) - R(\rho_t)| \leq \frac{e^{CT}}{\sqrt{m}}\bigl[\sqrt{\log m} + z\bigr] + e^{CT}\bigl[\sqrt{d\log m} + z\bigr]\sqrt{\varepsilon}.
+$$
+
+At time $t = \Theta(1)$, using $n = t/\varepsilon$ samples with $\varepsilon d \ll 1$ and $n \gg d$, the empirical risk of the $m$-neuron network tracks the mean field risk.
+:::
+
+The proof uses the **Dobrushin propagation of chaos** technique @dobrushin1979vlasov, coupling three dynamics initialized from the same $\rho_0$:
+
+1. **SGD:** $\theta_i(t+\varepsilon) = \theta_i(t) - \varepsilon m\,\nabla_{\theta_i}\ell(y_{I(t)}, f(x_{I(t)};\theta(t)))$
+2. **GD on empirical risk:** $\hat\theta_i(t+\varepsilon) = \hat\theta_i(t) - m\int_t^{t+\varepsilon}\nabla_{\theta_i}R^{(m)}(\hat\theta(s))\,ds$, with $\nabla_{\theta_i}R^{(m)} = \nabla_{\theta_i}\Psi(\hat\theta_i;\hat\rho_t^{(m)})$
+3. **Nonlinear McKean–Vlasov:** $\tilde\theta_i(t+\varepsilon) = \tilde\theta_i(t) - m\int_t^{t+\varepsilon}\nabla_{\theta_i}\Psi(\tilde\theta_i(s);\rho_s)\,ds$, with $(\tilde\theta_i(t))_{i\leq m} \overset{\text{iid}}{\sim} \rho_t$
+
+The total error decomposes as $\|f_\mathrm{SGD} - f_\mathrm{MF}\| \leq \|f_\mathrm{SGD} - f_\mathrm{GD}\| + \|f_\mathrm{GD} - f_\mathrm{MF}\|$. Term 1 is bounded by standard stochastic approximation; term 2 is the propagation of chaos error, controlled by the Dobrushin–McKean coupling.
+
+**Symmetry.** For the single-index model $x_i \sim \mathcal{N}(0, I_d)$, $y_i = \varphi(w_*^\top x_i) + \varepsilon_i$: if $\rho_0$ is invariant under rotations around $w_*$ then $\rho_t$ is for all $t$. This reduces the effective dynamics to a 1D ODE in the projection $\langle w, w_*\rangle$, a key simplification.
+
+### Fixed Points and Global Minimizers
+
+:::{prf:lemma} Fixed Point Characterization
+:label: lem-fixedpt
+
+$\rho_*$ is a fixed point of the mean field gradient flow if and only if
+
+$$
+\mathrm{supp}(\rho_*) \subseteq \{\theta : \nabla\Psi(\theta;\rho_*) = 0\}.
+$$
+
+Moreover, $-\frac{d}{dt}R(\rho_t) = \frac{1}{2}(|\dot\rho|^2 + |\nabla R|^2) \geq 0$ with equality iff $\rho_t$ is a fixed point.
+
+**Theorem.** The Fokker–Planck equation is gradient flow in $(\mathcal{P}, W_2)$ for the **free energy** $\mathcal{D}(\rho\|\rho_\mathrm{Boltz})$ (KL divergence from the Boltzmann distribution) $[@jordan1998variational]$.
+:::
+
+The lemma is proved as follows. Since $R(\rho) = \frac{1}{2}\mathbb{E}[(y-\int\sigma(x;\theta)\rho(d\theta))^2]$, its convexity follows from:
+
+$$
+R(t\rho_1 + (1-t)\rho_2) \leq tR(\rho_1) + (1-t)R(\rho_2),
+$$
+
+which holds since $R$ is a quadratic in the linear functional $\rho \mapsto \int\sigma(x;\theta)\rho(d\theta)$. Expanding $R(\rho_s) - R(\rho_*)$ for $\rho_s = s\rho + (1-s)\rho_*$ and differentiating at $s=0$:
+
+$$
+R(\rho) - R(\rho_*) = \int\Psi(\theta;\rho_*)(\rho - \rho_*)(d\theta) + O(W_2^2) \geq 0 \;\;\forall\rho \iff \Psi(\theta;\rho_*) \geq \min_\theta \Psi(\theta;\rho_*) \;\;\rho_*\text{-a.e.}
+$$
+
+:::{prf:lemma} Existence and Structure of Minimizers
+:label: lem-exist
+
+Assume $\theta \mapsto V(\theta)$, $(\theta_1,\theta_2)\mapsto U(\theta_1,\theta_2)$ are continuous, bounded below, and there exist $\varepsilon, C > 0$ such that $R(\rho) \leq \inf_\rho R(\rho) + \varepsilon \Rightarrow \int\|\theta\|^a\rho(d\theta) < C$. Then:
+
+1. $\min_\rho R(\rho)$ is achieved at some $\rho_*$.
+2. $\rho_*$ is a minimizer iff $\mathrm{supp}(\rho_*) \subseteq \operatorname*{arg\,min}_\theta\Psi(\theta;\rho_*)$.
+:::
+
+Part (1) follows from lower semicontinuity of $R$ under weak convergence (which holds because $\sigma$ is continuous and bounded) and tightness of sublevel sets. Part (2) follows from the first-order optimality condition above.
+
+:::{prf:corollary}
+If $\mathrm{supp}(\rho_*) = \{\theta^*\}$ (a single atom) and $\rho_*$ is a fixed point of the gradient flow, then $\rho_*$ is a **global minimizer** of $R$.
+:::
+
+This corollary captures the mean field intuition: if the dynamics collapse to a single neuron trajectory $\theta^*$ (which happens, for example, in the single-index model under the symmetry reduction above), then that trajectory achieves the global minimum of $R$.

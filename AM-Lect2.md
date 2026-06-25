@@ -5,6 +5,7 @@ short_title: Barron Norm and NTK
 authors:
   - name: Andrea Montanari, transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
+bibliography: references.bib
 ---
 
 These notes cover the Day 7 lecture by Andrea Montanari. The first half completes the story of Barron spaces begun in Lecture 4: we give a concrete spectral characterization of the Barron norm via spherical harmonics, show when it is finite, and note its invariance under low-dimensional projections. The second half turns to the empirical phenomenon of **double descent**, introduces the gradient flow ODE for neural network training, and proves the key theorem on convergence to a linearized (NTK) model when the network is sufficiently wide.
@@ -117,7 +118,7 @@ The corresponding gradient flow $\dot{\bar\theta}_t = -\nabla\hat R_n^\mathrm{li
 
 ### Convergence Theorem
 
-:::{prf:theorem} NTK Convergence (Du et al. 2019; Chizat–Bach 2020; Bartlett–Montanari–Rakhlin)
+:::{prf:theorem} NTK Convergence [@du2019gradient; @chizat2020implicit]
 :label: thm-ntk
 
 Let $L = \mathrm{Lip}(Df_n)$. Assume
