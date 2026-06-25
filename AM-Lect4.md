@@ -6,7 +6,6 @@ authors:
   - name: Andrea Montanari, transcribed by Max Hirsch with the Claude LLM
 subject: Lecture Notes
 bibliography: references.bib
-bibliography: references.bib
 ---
 
 These notes cover the second lecture of Day 9 by Andrea Montanari. We ask when a two-layer network trained by (stochastic) gradient descent can learn the single-index model $y = \varphi(w_*^\top x)$ in polynomial time with $n = \tilde O(d)$ samples. The mean field theory (MFT) provides a sharp separation from the NTK regime: while Rademacher complexity remains small along MFT dynamics, it blows up in the NTK regime. The lecture introduces the **generative exponent** $k_*$ of a link function $\varphi$ and proves that: (a) weak recovery requires $n \geq \Omega(d^{k_*/2})$ for any efficient algorithm (lower bound from SQ/LDP hardness), and (b) a computationally efficient algorithm achieving weak recovery with $n = \tilde O(d^{k_*/2})$ is given by a **degree-$k_*$ preprocessing** estimator, as proved in @damian2024computational.
